@@ -24,9 +24,8 @@ public class MainActivity extends Activity {
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private WebView web;
     private LinearLayout appLayout;
-    private String exportData;
     private File pendingApk;
-    private boolean checking=false;
+    private boolean checking=false,downloading=false,pageIsReady=false,importInFlight=false,installPromptOpen=false,deferInstall=false;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -38,6 +37,7 @@ public class MainActivity extends Activity {
         WebSettings ws=web.getSettings();ws.setJavaScriptEnabled(true);ws.setDomStorageEnabled(true);ws.setAllowFileAccess(false);ws.setAllowContentAccess(false);ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         final WebViewAssetLoader loader=new WebViewAssetLoader.Builder().addPathHandler("/assets/",new WebViewAssetLoader.AssetsPathHandler(this)).build();
         web.setWebViewClient(new WebViewClient(){
+            @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap favicon){pageIsReady=false;}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
                 WebResourceResponse response=loader.shouldInterceptRequest(request.getUrl());
                 return response!=null?response:new WebResourceResponse("text/plain","UTF-8",403,"Blocked",Collections.emptyMap(),new ByteArrayInputStream(new byte[0]));
@@ -46,7 +46,7 @@ public class MainActivity extends Activity {
             @Override public void onPageFinished(WebView view,String url){
                 // Keep the native interface restricted to bundled, non-navigable content.
                 if(!url.startsWith(ORIGIN+"/assets/"))return;
-                view.evaluateJavascript("document.getElementById('export').onclick=()=>AndroidFiles.exportJson(localStorage.getItem('home-balance-v1')||JSON.stringify({version:1,goals:{k:2450,p:150,f:70,c:305},entries:[]}));document.getElementById('import').addEventListener('click',e=>{e.preventDefault();AndroidFiles.importJson()});",null);
+                view.evaluateJavascript("if(window.BalanceApp)AndroidFiles.pageReady()",null);
             }
         });
         web.setWebChromeClient(new WebChromeClient(){
@@ -57,17 +57,23 @@ public class MainActivity extends Activity {
             @JavascriptInterface public void checkUpdates(){runOnUiThread(()->MainActivity.this.checkUpdates(true));}
             @JavascriptInterface public void setDarkMode(boolean dark){runOnUiThread(()->applyTheme(dark));}
             @JavascriptInterface public void openRepository(){runOnUiThread(()->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/"+BuildConfig.UPDATE_REPO)));}catch(ActivityNotFoundException ex){message("На устройстве недоступен браузер.");}});}
-            @JavascriptInterface public void exportJson(String data){if(data==null||data.length()>10000000)return;runOnUiThread(()->{exportData=data;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"domashniy-balans.json");startActivityForResult(i,10);});}
+            @JavascriptInterface public void exportJson(String data){if(data==null||data.length()>10000000)return;worker.execute(()->{try{writePending("pending-export.json",data);runOnUiThread(()->{if(isFinishing()||isDestroyed())return;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"domashniy-balans.json");startActivityForResult(i,10);});}catch(Exception ex){runOnUiThread(()->message("Не удалось подготовить копию: "+ex.getMessage()));}});}
             @JavascriptInterface public void importJson(){runOnUiThread(()->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),11));}
+            @JavascriptInterface public void pageReady(){runOnUiThread(()->{pageIsReady=true;deliverPendingImport();});}
+            @JavascriptInterface public void importFinished(){runOnUiThread(()->{new File(getFilesDir(),"pending-import.json").delete();importInFlight=false;});}
         },"AndroidFiles");
         applyTheme(getPreferences(0).getBoolean("darkMode",false));
         web.loadUrl(ORIGIN+"/assets/www/index.html");
-        if(System.currentTimeMillis()-getPreferences(0).getLong("lastCheck",0)>86400000L)checkUpdates(false);
+        File update=new File(new File(getCacheDir(),"updates"),"update.apk");
+        if(update.exists())worker.execute(()->{try{verifyApk(update);runOnUiThread(()->{pendingApk=update;offerInstall();});}catch(Exception ex){update.delete();}});
+        else if(System.currentTimeMillis()-getPreferences(0).getLong("lastCheck",0)>86400000L)checkUpdates(false);
     }
 
     private AlertDialog.Builder newAlert(){return new AlertDialog.Builder(new ContextThemeWrapper(this,getPreferences(0).getBoolean("darkMode",false)?android.R.style.Theme_Material_Dialog_Alert:android.R.style.Theme_Material_Light_Dialog_Alert));}
     private void message(String text){if(!isFinishing()&&!isDestroyed())newAlert().setTitle("Обновления").setMessage(text).setPositiveButton("Понятно",null).show();}
     private void checkUpdates(boolean manual){
+        if(pendingApk!=null){if(manual){deferInstall=false;offerInstall();}return;}
+        if(downloading){if(manual)Toast.makeText(this,"Обновление уже загружается…",Toast.LENGTH_SHORT).show();return;}
         if(checking){if(manual)Toast.makeText(this,"Проверка уже выполняется…",Toast.LENGTH_SHORT).show();return;}checking=true;
         if(manual)Toast.makeText(this,"Проверяем GitHub…",Toast.LENGTH_SHORT).show();
         worker.execute(()->{try{
@@ -93,34 +99,41 @@ public class MainActivity extends Activity {
     }
     private byte[] readBounded(InputStream stream,int max)throws IOException{try(InputStream in=stream;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buffer=new byte[8192];int read;while((read=in.read(buffer))!=-1){if(out.size()+read>max)throw new IOException("Файл слишком большой.");out.write(buffer,0,read);}return out.toByteArray();}}
     private void download(String url,String digest,long expectedSize){
+        if(downloading)return;downloading=true;
         Toast.makeText(this,"Загрузка обновления…",Toast.LENGTH_LONG).show();
-        worker.execute(()->{File file=new File(new File(getCacheDir(),"updates"),"update.apk");try{
+        worker.execute(()->{File file=new File(new File(getCacheDir(),"updates"),"update.part.apk");try{
             file.getParentFile().mkdirs();MessageDigest hash=MessageDigest.getInstance("SHA-256");long total=0;HttpURLConnection c=open(url);c.setRequestProperty("Accept","application/octet-stream");
             try{if(c.getResponseCode()!=200)throw new IOException("Не удалось скачать APK.");try(InputStream in=c.getInputStream();OutputStream out=new FileOutputStream(file)){byte[] buf=new byte[16384];int n;while((n=in.read(buf))!=-1){total+=n;if(total>expectedSize)throw new IOException("Неверный размер APK.");hash.update(buf,0,n);out.write(buf,0,n);}}}finally{c.disconnect();}
             StringBuilder actual=new StringBuilder();for(byte b:hash.digest())actual.append(String.format(Locale.ROOT,"%02x",b&255));
             if(total!=expectedSize||!actual.toString().equalsIgnoreCase(digest.substring(7)))throw new IOException("Контрольная сумма APK не совпадает.");
             verifyApk(file);
-            runOnUiThread(()->{pendingApk=file;offerInstall();});
-        }catch(Exception ex){file.delete();runOnUiThread(()->message("Обновление не установлено: "+ex.getMessage()));}});
+            File ready=new File(file.getParentFile(),"update.apk");java.nio.file.Files.move(file.toPath(),ready.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            runOnUiThread(()->{pendingApk=ready;offerInstall();});
+        }catch(Exception ex){file.delete();runOnUiThread(()->message("Обновление не установлено: "+ex.getMessage()));}finally{runOnUiThread(()->downloading=false);}});
     }
     @SuppressWarnings("deprecation") private void verifyApk(File file)throws Exception{
         PackageManager pm=getPackageManager();PackageInfo downloaded=pm.getPackageArchiveInfo(file.getAbsolutePath(),PackageManager.GET_SIGNATURES),installed=pm.getPackageInfo(getPackageName(),PackageManager.GET_SIGNATURES);
         if(downloaded==null||!getPackageName().equals(downloaded.packageName)||downloaded.versionCode<=installed.versionCode||downloaded.signatures==null||!Arrays.equals(downloaded.signatures,installed.signatures))throw new IOException("Неподходящий пакет, версия или подпись приложения.");
     }
     private void offerInstall(){
-        if(isFinishing()||isDestroyed()||pendingApk==null)return;
-        newAlert().setTitle("Обновление загружено").setMessage("Android запросит подтверждение установки. Если потребуется, разрешите установку из этого приложения.").setNegativeButton("Позже",(d,w)->pendingApk=null).setPositiveButton("Установить",(d,w)->{
+        if(isFinishing()||isDestroyed()||pendingApk==null||installPromptOpen||deferInstall)return;installPromptOpen=true;
+        newAlert().setTitle("Обновление загружено").setMessage("Android запросит подтверждение установки. Если потребуется, разрешите установку из этого приложения.").setNegativeButton("Позже",(d,w)->deferInstall=true).setPositiveButton("Установить",(d,w)->{
             if(!getPackageManager().canRequestPackageInstalls()){startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));return;}
-            File apk=pendingApk;pendingApk=null;Intent i=new Intent(Intent.ACTION_VIEW).setDataAndType(FileProvider.getUriForFile(this,getPackageName()+".files",apk),"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            File apk=pendingApk;try{verifyApk(apk);}catch(Exception ex){pendingApk=null;apk.delete();message("APK больше не подходит для обновления.");return;}Intent i=new Intent(Intent.ACTION_VIEW).setDataAndType(FileProvider.getUriForFile(this,getPackageName()+".files",apk),"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             try{startActivity(i);}catch(ActivityNotFoundException ex){message("На устройстве недоступен установщик APK.");}
-        }).show();
+        }).setOnDismissListener(d->installPromptOpen=false).show();
     }
     @Override protected void onResume(){super.onResume();if(pendingApk!=null)offerInstall();}
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(result!=RESULT_OK||data==null||data.getData()==null){if(request==10)new File(getFilesDir(),"pending-export.json").delete();return;}Uri uri=data.getData();
         worker.execute(()->{try{
-            if(request==10){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null||exportData==null)throw new IOException("Нет данных для экспорта.");out.write(exportData.getBytes(StandardCharsets.UTF_8));}runOnUiThread(()->Toast.makeText(this,"Копия сохранена",Toast.LENGTH_SHORT).show());}
-            if(request==11){String json=new String(readBounded(getContentResolver().openInputStream(uri),10000000),StandardCharsets.UTF_8);new JSONObject(json);String safe=JSONObject.quote(json);runOnUiThread(()->web.evaluateJavascript("(()=>{const s="+safe+";const input=document.getElementById('import');const dt=new DataTransfer();dt.items.add(new File([s],'backup.json',{type:'application/json'}));input.files=dt.files;input.dispatchEvent(new Event('change'))})()",null));}
+            if(request==10){byte[] payload=readBounded(new FileInputStream(new File(getFilesDir(),"pending-export.json")),10000000);try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException("Не удалось открыть файл.");out.write(payload);}new File(getFilesDir(),"pending-export.json").delete();runOnUiThread(()->Toast.makeText(this,"Копия сохранена",Toast.LENGTH_SHORT).show());}
+            if(request==11){String json=new String(readBounded(getContentResolver().openInputStream(uri),10000000),StandardCharsets.UTF_8);new JSONObject(json);writePending("pending-import.json",json);runOnUiThread(this::deliverPendingImport);}
         }catch(Exception ex){runOnUiThread(()->message("Не удалось обработать копию: "+ex.getMessage()));}});
+    }
+    private void writePending(String name,String data)throws IOException{File target=new File(getFilesDir(),name),temp=new File(getFilesDir(),name+".tmp");try(OutputStream out=new FileOutputStream(temp)){out.write(data.getBytes(StandardCharsets.UTF_8));}java.nio.file.Files.move(temp.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);}
+    private void deliverPendingImport(){
+        File file=new File(getFilesDir(),"pending-import.json");if(!pageIsReady||importInFlight||!file.exists()||isDestroyed())return;importInFlight=true;
+        worker.execute(()->{try{String json=new String(readBounded(new FileInputStream(file),10000000),StandardCharsets.UTF_8);String safe=JSONObject.quote(json);runOnUiThread(()->{if(isDestroyed())return;web.evaluateJavascript("(async()=>{try{await window.BalanceApp.importData("+safe+")}finally{AndroidFiles.importFinished()}})()",null);});}catch(Exception ex){runOnUiThread(()->{importInFlight=false;message("Не удалось прочитать копию: "+ex.getMessage());});}});
     }
     private void applyTheme(boolean dark){
         getPreferences(0).edit().putBoolean("darkMode",dark).apply();
@@ -130,7 +143,7 @@ public class MainActivity extends Activity {
         else getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
     }
     private void goBackOrExit(){if(web.canGoBack())web.goBack();else finish();}
-    private void handleBack(){web.evaluateJavascript("(()=>{const dialog=[...document.querySelectorAll('dialog[open]')].pop();if(!dialog)return false;if(dialog.dispatchEvent(new Event('cancel',{cancelable:true})))dialog.close();return true})()",handled->{if(!"true".equals(handled))goBackOrExit();});}
+    private void handleBack(){web.evaluateJavascript("(()=>{const dialog=[...document.querySelectorAll('dialog[open]')].pop();if(dialog){if(dialog.dispatchEvent(new Event('cancel',{cancelable:true})))dialog.close();return true}return window.BalanceApp?.goBack?.()||false})()",handled->{if(!"true".equals(handled))goBackOrExit();});}
     @Override public void onBackPressed(){handleBack();}
     @Override protected void onDestroy(){worker.shutdownNow();web.removeJavascriptInterface("AndroidFiles");web.destroy();super.onDestroy();}
 }

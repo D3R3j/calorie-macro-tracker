@@ -1,0 +1,7 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {estimate,totals} from '../app/src/main/assets/www/model.js';
+const input={weight:1000,portion:250,items:[{id:0,rank:1}],oil:'none',oilGrams:0,method:'boil',water:0};
+test('Single prepared ingredient has independently known portion macros',()=>{const r=estimate(input);assert.ok(Math.abs(r.p.mid-77.5)<1e-8);assert.ok(Math.abs(r.f.mid-9)<1e-8);assert.ok(Math.abs(r.k.mid-391)<1e-8)});
+test('Oil replaces solid mass and free water dilutes macros',()=>{const r=estimate({...input,oil:'known',oilGrams:20});assert.ok(Math.abs(r.f.mid-(980*.036+20)*.25)<1e-8);assert.ok(Math.abs(estimate({...input,water:50}).k.mid-195.5)<1e-8)});
+test('Portion scaling, deterministic ranges and daily sums remain consistent',()=>{const mixed={...input,items:[{id:0,rank:3},{id:8,rank:6}],oil:'unknown'};const one=estimate(mixed),two=estimate({...mixed,portion:500});assert.deepEqual(one,estimate(mixed));for(const k of ['k','p','f','c']){for(const band of ['low','mid','high'])assert.equal(two[k][band],one[k][band]*2);assert.ok(one[k].low<=one[k].mid&&one[k].mid<=one[k].high);assert.equal(totals([{result:one},{result:one}])[k].mid,two[k].mid)}assert.equal(totals([]).k.mid,0)});
+test('Invalid recipes and mass balances are rejected',()=>{for(const overrides of [{portion:1001},{items:[]},{weight:0},{water:91},{oil:'known',oilGrams:1000}])assert.throws(()=>estimate({...input,...overrides}))});
