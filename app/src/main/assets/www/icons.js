@@ -1,0 +1,22 @@
+const paths={
+  menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+  close:'<path d="m6 6 12 12M18 6 6 18"/>',
+  overview:'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+  flame:'<path d="M13 3c1 5-3 5-2 9 2-1 3-3 3-5 4 3 6 6 5 10a7 7 0 0 1-14-1c0-3 2-5 4-7-1 4 0 5 1 5-1-5 4-6 3-11Z"/>',
+  protein:'<path d="M5 8v8M2 10v4m17-6v8m3-6v4M5 12h14"/>',
+  fat:'<path d="M12 3c-3 4-7 8-7 12a7 7 0 0 0 14 0c0-4-4-8-7-12Z"/>',
+  carbs:'<path d="M12 21V3m0 6C7 9 5 7 5 4c4 0 7 2 7 5Zm0 5c-5 0-7-2-7-5 4 0 7 2 7 5Zm0-3c5 0 7-2 7-5-4 0-7 2-7 5Zm0 6c5 0 7-2 7-5-4 0-7 2-7 5Z"/>',
+  meal:'<path d="M3 12h18a9 9 0 0 1-18 0Zm3 9h12M8 3v4m4-4v4m4-4v4"/>',
+  calculator:'<rect x="4" y="2" width="16" height="20" rx="3"/><path d="M8 6h8M8 11h1m6 0h1m-8 4h1m6 0h1m-8 4h1m6 0h1"/>',
+  diary:'<path d="M6 3h13a2 2 0 0 1 2 2v16H6a3 3 0 0 1 0-6h15M6 3a3 3 0 0 0-3 3v12M9 7h8m-8 4h6"/>',
+  target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  moon:'<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>',
+  help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1-1.5 2m0 3h.01"/>',
+  export:'<path d="M12 3v12m-4-4 4 4 4-4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
+  import:'<path d="M12 15V3m-4 4 4-4 4 4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
+  update:'<path d="M20 7v5h-5M4 17v-5h5m-5 0a8 8 0 0 1 13-6l3 3M4 15l3 3a8 8 0 0 0 13-6"/>',
+  info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
+  heart:'<path d="M20.5 5.5a5 5 0 0 0-7 0L12 7l-1.5-1.5a5 5 0 0 0-7 7L12 21l8.5-8.5a5 5 0 0 0 0-7Z"/>'
+};
+export function icon(name){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[name]||paths.overview}</svg>`}

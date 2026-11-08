@@ -23,18 +23,18 @@ public class MainActivity extends Activity {
     private static final String ORIGIN="https://appassets.androidplatform.net";
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private WebView web;
+    private LinearLayout appLayout;
     private String exportData;
     private File pendingApk;
     private boolean checking=false;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setBackgroundColor(0xff215c48);
+        LinearLayout layout=new LinearLayout(this);appLayout=layout;layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setBackgroundColor(0xfff2f2f7);
         layout.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
-        Button updates=new Button(this);updates.setText("Обновления · v"+BuildConfig.VERSION_NAME);updates.setTextColor(0xffffffff);updates.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff215c48));updates.setOnClickListener(v->checkUpdates(true));
-        layout.addView(updates,new LinearLayout.LayoutParams(-1,48*(int)getResources().getDisplayMetrics().density));
         web=new WebView(this);layout.addView(web,new LinearLayout.LayoutParams(-1,0,1));setContentView(layout);
+        if(Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::handleBack);
         WebSettings ws=web.getSettings();ws.setJavaScriptEnabled(true);ws.setDomStorageEnabled(true);ws.setAllowFileAccess(false);ws.setAllowContentAccess(false);ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         final WebViewAssetLoader loader=new WebViewAssetLoader.Builder().addPathHandler("/assets/",new WebViewAssetLoader.AssetsPathHandler(this)).build();
         web.setWebViewClient(new WebViewClient(){
@@ -50,17 +50,23 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient(){
-            @Override public boolean onJsConfirm(WebView view,String url,String message,JsResult result){new AlertDialog.Builder(MainActivity.this).setMessage(message).setPositiveButton("Да",(d,w)->result.confirm()).setNegativeButton("Отмена",(d,w)->result.cancel()).setOnCancelListener(d->result.cancel()).show();return true;}
+            @Override public boolean onJsConfirm(WebView view,String url,String message,JsResult result){newAlert().setMessage(message).setPositiveButton("Да",(d,w)->result.confirm()).setNegativeButton("Отмена",(d,w)->result.cancel()).setOnCancelListener(d->result.cancel()).show();return true;}
         });
         web.addJavascriptInterface(new Object(){
+            @JavascriptInterface public String getVersion(){return BuildConfig.VERSION_NAME;}
+            @JavascriptInterface public void checkUpdates(){runOnUiThread(()->MainActivity.this.checkUpdates(true));}
+            @JavascriptInterface public void setDarkMode(boolean dark){runOnUiThread(()->applyTheme(dark));}
+            @JavascriptInterface public void openRepository(){runOnUiThread(()->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/"+BuildConfig.UPDATE_REPO)));}catch(ActivityNotFoundException ex){message("На устройстве недоступен браузер.");}});}
             @JavascriptInterface public void exportJson(String data){if(data==null||data.length()>10000000)return;runOnUiThread(()->{exportData=data;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"domashniy-balans.json");startActivityForResult(i,10);});}
             @JavascriptInterface public void importJson(){runOnUiThread(()->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),11));}
         },"AndroidFiles");
+        applyTheme(getPreferences(0).getBoolean("darkMode",false));
         web.loadUrl(ORIGIN+"/assets/www/index.html");
         if(System.currentTimeMillis()-getPreferences(0).getLong("lastCheck",0)>86400000L)checkUpdates(false);
     }
 
-    private void message(String text){if(!isFinishing()&&!isDestroyed())new AlertDialog.Builder(this).setTitle("Обновления").setMessage(text).setPositiveButton("Понятно",null).show();}
+    private AlertDialog.Builder newAlert(){return new AlertDialog.Builder(new ContextThemeWrapper(this,getPreferences(0).getBoolean("darkMode",false)?android.R.style.Theme_Material_Dialog_Alert:android.R.style.Theme_Material_Light_Dialog_Alert));}
+    private void message(String text){if(!isFinishing()&&!isDestroyed())newAlert().setTitle("Обновления").setMessage(text).setPositiveButton("Понятно",null).show();}
     private void checkUpdates(boolean manual){
         if(checking){if(manual)Toast.makeText(this,"Проверка уже выполняется…",Toast.LENGTH_SHORT).show();return;}checking=true;
         if(manual)Toast.makeText(this,"Проверяем GitHub…",Toast.LENGTH_SHORT).show();
@@ -75,7 +81,7 @@ public class MainActivity extends Activity {
             else {
                 String url=apk.getString("browser_download_url"),digest=apk.optString("digest","");long size=apk.getLong("size");
                 if(!url.startsWith("https://github.com/"+BuildConfig.UPDATE_REPO+"/releases/download/")||!digest.matches("sha256:[0-9a-fA-F]{64}")||size<=0||size>100000000)throw new IOException("Не удалось проверить сведения об APK. Обновление отменено.");
-                runOnUiThread(()->{if(!isFinishing()&&!isDestroyed())new AlertDialog.Builder(this).setTitle("Доступна версия "+tag).setMessage("Установлена "+BuildConfig.VERSION_NAME+". Скачать обновление из "+BuildConfig.UPDATE_REPO+"? Дневник сохранится.").setNegativeButton("Позже",null).setPositiveButton("Скачать",(d,w)->download(url,digest,size)).show();});
+                runOnUiThread(()->{if(!isFinishing()&&!isDestroyed())newAlert().setTitle("Доступна версия "+tag).setMessage("Установлена "+BuildConfig.VERSION_NAME+". Скачать обновление из "+BuildConfig.UPDATE_REPO+"? Дневник сохранится.").setNegativeButton("Позже",null).setPositiveButton("Скачать",(d,w)->download(url,digest,size)).show();});
             }
             getPreferences(0).edit().putLong("lastCheck",System.currentTimeMillis()).apply();
         }catch(Exception ex){if(manual)runOnUiThread(()->message(ex.getMessage()==null?"Не удалось проверить обновления. Проверьте подключение к интернету.":ex.getMessage()));}finally{runOnUiThread(()->checking=false);}});
@@ -103,7 +109,7 @@ public class MainActivity extends Activity {
     }
     private void offerInstall(){
         if(isFinishing()||isDestroyed()||pendingApk==null)return;
-        new AlertDialog.Builder(this).setTitle("Обновление загружено").setMessage("Android запросит подтверждение установки. Если потребуется, разрешите установку из этого приложения.").setNegativeButton("Позже",(d,w)->pendingApk=null).setPositiveButton("Установить",(d,w)->{
+        newAlert().setTitle("Обновление загружено").setMessage("Android запросит подтверждение установки. Если потребуется, разрешите установку из этого приложения.").setNegativeButton("Позже",(d,w)->pendingApk=null).setPositiveButton("Установить",(d,w)->{
             if(!getPackageManager().canRequestPackageInstalls()){startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));return;}
             File apk=pendingApk;pendingApk=null;Intent i=new Intent(Intent.ACTION_VIEW).setDataAndType(FileProvider.getUriForFile(this,getPackageName()+".files",apk),"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             try{startActivity(i);}catch(ActivityNotFoundException ex){message("На устройстве недоступен установщик APK.");}
@@ -116,6 +122,15 @@ public class MainActivity extends Activity {
             if(request==11){String json=new String(readBounded(getContentResolver().openInputStream(uri),10000000),StandardCharsets.UTF_8);new JSONObject(json);String safe=JSONObject.quote(json);runOnUiThread(()->web.evaluateJavascript("(()=>{const s="+safe+";const input=document.getElementById('import');const dt=new DataTransfer();dt.items.add(new File([s],'backup.json',{type:'application/json'}));input.files=dt.files;input.dispatchEvent(new Event('change'))})()",null));}
         }catch(Exception ex){runOnUiThread(()->message("Не удалось обработать копию: "+ex.getMessage()));}});
     }
-    @Override public void onBackPressed(){if(web.canGoBack())web.goBack();else super.onBackPressed();}
+    private void applyTheme(boolean dark){
+        getPreferences(0).edit().putBoolean("darkMode",dark).apply();
+        int background=dark?0xff000000:0xfff2f2f7;appLayout.setBackgroundColor(background);web.setBackgroundColor(background);
+        getWindow().setStatusBarColor(background);getWindow().setNavigationBarColor(background);
+        if(Build.VERSION.SDK_INT>=30){WindowInsetsController controller=getWindow().getInsetsController();if(controller!=null){int flags=WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;controller.setSystemBarsAppearance(dark?0:flags,flags);}}
+        else getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+    }
+    private void goBackOrExit(){if(web.canGoBack())web.goBack();else finish();}
+    private void handleBack(){web.evaluateJavascript("(()=>{const dialog=[...document.querySelectorAll('dialog[open]')].pop();if(!dialog)return false;if(dialog.dispatchEvent(new Event('cancel',{cancelable:true})))dialog.close();return true})()",handled->{if(!"true".equals(handled))goBackOrExit();});}
+    @Override public void onBackPressed(){handleBack();}
     @Override protected void onDestroy(){worker.shutdownNow();web.removeJavascriptInterface("AndroidFiles");web.destroy();super.onDestroy();}
 }
