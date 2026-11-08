@@ -1,4 +1,5 @@
 import {foods,defaults,estimate,totals} from './model.js';
+import {calorieNeeds,validNeedsProfile} from './needs.js';
 const $=id=>document.getElementById(id),keys=['k','p','f','c'],labels={k:'Калории',p:'Белки',f:'Жиры',c:'Углеводы'},unit=k=>k==='k'?'ккал':'г',fmt=n=>Math.round(n).toLocaleString('ru-RU'),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function renderTheme(){const dark=document.documentElement.dataset.theme==='dark';$('themeToggle').textContent=dark?'☀ Светлая тема':'☾ Тёмная тема';$('themeToggle').setAttribute('aria-pressed',String(dark));document.querySelector('meta[name="theme-color"]').content=dark?'#15251e':'#215c48'}
 $('themeToggle').onclick=()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=theme;try{localStorage.setItem('home-balance-theme',theme)}catch{$('status').textContent='Выбор темы действует до закрытия страницы: сохранение в браузере недоступно.'}renderTheme()};renderTheme();
@@ -9,7 +10,7 @@ let showWelcome=true;try{showWelcome=localStorage.getItem('home-balance-welcome-
 if(showWelcome)welcome.showModal();
 const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
 let state={version:1,goals:{...defaults},entries:[]},items=[{id:0,rank:3},{id:8,rank:6},{id:16,rank:1}],last=null;
-function valid(s){return s&&s.version===1&&keys.every(k=>Number.isFinite(s.goals?.[k])&&s.goals[k]>0&&s.goals[k]<=100000)&&Array.isArray(s.entries)&&s.entries.length<=10000&&s.entries.every(e=>typeof e.id==='string'&&typeof e.name==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(e.date)&&Number.isFinite(e.portion)&&e.portion>0&&keys.every(k=>['low','mid','high'].every(b=>Number.isFinite(e.result?.[k]?.[b])&&e.result[k][b]>=0)&&e.result[k].low<=e.result[k].mid&&e.result[k].mid<=e.result[k].high))}
+function valid(s){return s&&s.version===1&&(s.needsProfile===undefined||validNeedsProfile(s.needsProfile))&&keys.every(k=>Number.isFinite(s.goals?.[k])&&s.goals[k]>0&&s.goals[k]<=100000)&&Array.isArray(s.entries)&&s.entries.length<=10000&&s.entries.every(e=>typeof e.id==='string'&&typeof e.name==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(e.date)&&Number.isFinite(e.portion)&&e.portion>0&&keys.every(k=>['low','mid','high'].every(b=>Number.isFinite(e.result?.[k]?.[b])&&e.result[k][b]>=0)&&e.result[k].low<=e.result[k].mid&&e.result[k].mid<=e.result[k].high))}
 try{const saved=localStorage.getItem('home-balance-v1');if(saved){const parsed=JSON.parse(saved);if(!valid(parsed))throw Error();state=parsed}}catch{$('status').textContent='Не удалось прочитать сохранённые данные. Импортируйте резервную копию.'}
 function persist(){try{localStorage.setItem('home-balance-v1',JSON.stringify(state));$('status').textContent='Сохранено в этом браузере.'}catch{$('status').textContent='Не удалось сохранить данные. Экспортируйте копию, прежде чем закрывать страницу.'}}
 $('date').value=today();$('food').innerHTML=foods.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
@@ -24,5 +25,21 @@ function renderDay(){const entries=state.entries.filter(e=>e.date===$('date').va
 $('entries').onclick=e=>{if(e.target.dataset.delete){state.entries=state.entries.filter(x=>x.id!==e.target.dataset.delete);persist();renderDay()}};$('date').onchange=renderDay;
 $('goalBtn').onclick=()=>{$('goalFields').innerHTML=keys.map(k=>`<label>${labels[k]}, ${unit(k)}<input name="${k}" type="number" min="1" max="100000" required value="${state.goals[k]}"></label>`).join('');$('goals').showModal()};$('cancelGoals').onclick=()=>$('goals').close();$('goalsForm').onsubmit=e=>{e.preventDefault();const data=new FormData(e.target);for(const k of keys)state.goals[k]=+data.get(k);persist();renderDay();$('goals').close()};
 $('export').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`domashniy-balans-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
-$('import').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>10000000)throw Error('Слишком большой файл.');const data=JSON.parse(await file.text());if(!valid(data))throw Error('Неподходящий формат резервной копии.');if(!confirm('Заменить текущий дневник и цели данными из копии?'))return;state=data;persist();renderDay()}catch(err){$('status').textContent=`Импорт не выполнен: ${err.message}`}finally{e.target.value=''}};
+$('import').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>10000000)throw Error('Слишком большой файл.');const data=JSON.parse(await file.text());if(!valid(data))throw Error('Неподходящий формат резервной копии.');if(!confirm('Заменить текущий дневник и цели данными из копии?'))return;state=data;persist();renderDay();restoreNeedsProfile()}catch(err){$('status').textContent=`Импорт не выполнен: ${err.message}`}finally{e.target.value=''}};
+let needsResult=null;
+function clearNeedsResult(){needsResult=null;$('needsResult').hidden=true;$('needsError').textContent=''}
+function restoreNeedsProfile(){const p=state.needsProfile;for(const key of ['height','weight','age','sex','activity'])$('needs-'+key).value=p?.[key]??'';clearNeedsResult()}
+restoreNeedsProfile();
+$('needsForm').addEventListener('input',clearNeedsResult);
+$('needsForm').addEventListener('change',clearNeedsResult);
+$('needsForm').onsubmit=e=>{e.preventDefault();clearNeedsResult();try{
+  const profile={height:+$('needs-height').value,weight:+$('needs-weight').value,age:+$('needs-age').value,sex:$('needs-sex').value,activity:+$('needs-activity').value};
+  needsResult=calorieNeeds(profile);state.needsProfile=profile;persist();
+  $('needsResting').textContent=fmt(needsResult.resting)+' ккал';
+  $('needsDaily').textContent=fmt(needsResult.rounded)+' ккал / день';
+  $('needsApply').disabled=false;$('needsApply').textContent='Применить к дневной цели';
+  $('needsResult').hidden=false;
+}catch(err){$('needsError').textContent=err.message}};
+$('needsApply').onclick=()=>{if(!needsResult)return;state.goals.k=needsResult.rounded;persist();renderDay();$('needsApply').disabled=true;$('needsApply').textContent='✓ Цель по калориям обновлена'};
 renderItems();renderDay();
+

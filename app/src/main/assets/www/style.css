@@ -22,3 +22,5 @@
 [data-theme=dark] #error{color:#ffac96}
 [data-theme=dark] dialog::backdrop{background:#0009}
 @media(max-width:600px){header{gap:14px;align-items:flex-start;flex-wrap:wrap}.brand{font-size:22px}header .actions{width:100%;justify-content:space-between}main{padding-top:24px}#welcome{padding:28px 22px}#welcomeTitle{font-size:28px}}
+
+.needs-calculator{margin-bottom:26px}.needs-calculator>summary{font-size:18px;color:#315740;display:list-item}.needs-calculator>summary .tag{display:inline-block;margin-left:12px}.needs-calculator[open]>summary{margin-bottom:15px}.needs-calculator form{max-width:650px}.needs-result{background:#f0f4e8;padding:22px;border-radius:14px;margin:20px 0;max-width:650px}.needs-number{display:block;font-size:32px;line-height:1.4;color:#215c48}.form-error{color:#b24835;font-size:12px}[data-theme=dark] .needs-calculator>summary,[data-theme=dark] .needs-number{color:#b4d5a3}[data-theme=dark] .needs-result{background:#253b28}[data-theme=dark] .form-error{color:#ffac96}@media(max-width:600px){.needs-calculator>summary .tag{display:block;margin:8px 0 0}.needs-number{font-size:27px}}
