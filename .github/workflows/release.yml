@@ -29,7 +29,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
       - name: Validate inputs and restore signing key
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -54,3 +56,4 @@ jobs:
       - name: Remove temporary signing key
         if: always()
         run: rm -f "$ANDROID_KEYSTORE_PATH"
+
