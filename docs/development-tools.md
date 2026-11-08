@@ -14,7 +14,14 @@
 - [liuyi0808/android-review](https://github.com/liuyi0808/android-review): 7 навыков анализа Android. Проверены относящиеся к приложению правила WebView, файлов и ресурсов. Полный аудит Google Play не заявляется: APK распространяется через GitHub.
 - [zaferayan/skills](https://github.com/zaferayan/skills): справочник Expo установлен для будущих проектов. Реклама, платный экран, PostHog и смена стека в это приложение не добавлялись.
 
-Дополнительные коллекции рассматриваются по применимости к текущему стеку. Одинаковые навыки из сборников не заменяют уже установленные оригиналы.
+Дополнительно установлены выбранные навыки из больших коллекций:
+
+- [simota/agent-skills](https://github.com/simota/agent-skills): `voyager`, `radar`, `atlas`, `sentinel`, `native`. Прямые обязательные ссылки адаптированы к Windows в виде обычных файлов; циклические вложенные ссылки не разворачиваются.
+- [mxyhi/ok-skills](https://github.com/mxyhi/ok-skills): `diagnosing-bugs`. Дубликаты уже установленных оригиналов сохранены без замены.
+- [alexandru/skills](https://github.com/alexandru/skills): `arrow-resource`, `cats-effect-resource`, `compose-state-hoisting`. API Kotlin/Scala напрямую не используются; правила владения и закрытия ресурсов учитываются при проверке Java.
+- [alirezarezvani/claude-skills](https://github.com/alirezarezvani/claude-skills): `design-qa`, `code-reviewer`, `senior-architect`, `senior-security`. Исходный линтер `design-qa` запущен, результаты разобраны вручную и отражены в отчёте проверки.
+
+У последних 13 навыков проверены 164 прямые локальные зависимости: отсутствующих файлов нет. Сотни остальных навыков из этих коллекций автоматически не устанавливались.
 
 ## Уточнения
 
