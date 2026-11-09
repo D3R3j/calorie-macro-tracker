@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru" data-app-version="1.4.1">
+<html lang="ru" data-app-version="1.4.2">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -71,13 +71,15 @@
       <section id="dishCalculator" aria-label="Книга блюд">
         <div id="recipeLibrary">
           <div class="recipe-tools">
-            <label>Фильтр по типу<select id="recipeFilter"></select></label>
-            <button type="button" id="newRecipe" class="primary">Добавить блюдо</button>
+            <label id="recipeFilterLabel">Фильтр по типу<select id="recipeFilter"></select></label>
+            <button type="button" id="newRecipe" class="primary" aria-haspopup="dialog">Создать блюдо</button>
           </div>
           <div id="recipeList"></div>
         </div>
-        <form id="dishForm" hidden>
-          <div class="section-title recipe-heading"><h2 id="recipeTitle">Новое блюдо</h2><span id="recipeStepCount" class="hint" aria-live="polite"></span></div>
+      </section>
+      <dialog id="recipeDialog" aria-labelledby="recipeTitle">
+        <form id="dishForm">
+          <div class="section-title recipe-heading"><h2 id="recipeTitle" tabindex="-1" autofocus>Новое блюдо</h2><span id="recipeStepCount" class="hint" aria-live="polite"></span></div>
           <section class="form-section" data-recipe-step="0">
             <h3>Тип блюда</h3>
             <div id="recipeTypes" class="recipe-types"></div>
@@ -109,7 +111,7 @@
             <button type="submit" id="recipeNext" class="primary">Далее</button>
           </div>
         </form>
-      </section>
+      </dialog>
     </section>
 
 

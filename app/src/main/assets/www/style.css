@@ -461,7 +461,10 @@ label > .picker-trigger { margin-top: 5px; }
 .recipe-tools { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .recipe-tools label { flex: 1 1 180px; max-width: 300px; }
 .recipe-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 16px; background: var(--surface); border-radius: var(--radius); margin-bottom: 8px; overflow-wrap: anywhere; }
-.recipe-heading { margin-bottom: 12px; }
+#recipeDialog { width: min(620px, calc(100% - 24px)); padding: clamp(12px, 4vw, 20px); overscroll-behavior: contain; }
+#recipeDialog .form-section { padding: 0; }
+.recipe-heading { margin-bottom: 16px; }
+.recipe-heading h2 { margin: 0; padding: 0; }
 .recipe-actions { justify-content: flex-end; margin-top: 12px; }
 .recipe-types, .three { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin-top: 8px; }
 .recipe-types { grid-template-columns: repeat(auto-fit,minmax(min(100%,100px),1fr)); }

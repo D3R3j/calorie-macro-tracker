@@ -59,6 +59,7 @@ let editedRecipeId = null;
 let selectedRecipe = null;
 let recipeDate = '';
 const recipeForm = $('dishForm');
+const recipeDialog = $('recipeDialog');
 const recipes = () => state.recipes ?? [];
 const typeName = type => dishTypes.find(([key]) => key === type)?.[1] ?? 'Другое';
 $('recipeFilter').innerHTML = '<option value="">Все блюда</option>' +
@@ -67,6 +68,12 @@ $('recipeTypes').innerHTML = dishTypes.map(([key, name]) =>
   `<button type="button" class="secondary" data-type="${key}" aria-pressed="false">${name}</button>`).join('');
 
 function renderRecipeList() {
+  const hasRecipes = recipes().length > 0;
+  $('recipeFilterLabel').hidden = !hasRecipes;
+  if (!hasRecipes && $('recipeFilter').value) {
+    $('recipeFilter').value = '';
+    syncPickers();
+  }
   const filter = $('recipeFilter').value;
   const visible = recipes().filter(recipe => !filter || recipe.type === filter);
   $('recipeList').innerHTML = visible.length ? visible.map(recipe => `
@@ -74,7 +81,7 @@ function renderRecipeList() {
       <div><p class="hint">${typeName(recipe.type)}</p><h3>${esc(recipe.name)}</h3>
       <p class="hint">${fmt(recipe.input.weight)} г · ≈ ${fmt(recipe.result.k.mid / recipe.input.weight * 100)} ккал на 100 г</p></div>
       <div class="actions"><button type="button" class="primary" data-add-recipe="${esc(recipe.id)}">Записать порцию</button>
-      <button type="button" class="quiet" data-edit-recipe="${esc(recipe.id)}">Изменить</button>
+      <button type="button" class="quiet" aria-haspopup="dialog" data-edit-recipe="${esc(recipe.id)}">Изменить</button>
       <button type="button" class="quiet" data-delete-recipe="${esc(recipe.id)}">Удалить</button></div>
     </article>`).join('') : `<p class="empty">${filter ? 'Блюд этого типа пока нет.' : 'Здесь будут ваши блюда. Добавьте первое, чтобы записывать порции повторно.'}</p>`;
 }
@@ -88,7 +95,7 @@ function showRecipeStep(step) {
   $('error').textContent = '';
   $('recipeTypes').querySelectorAll('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.type === recipeType)));
   if (step === 1) renderSuggestions();
-  window.scrollTo(0,0);
+  recipeDialog.scrollTop = 0;
 }
 
 function openRecipe(recipe) {
@@ -105,18 +112,21 @@ function openRecipe(recipe) {
   $('oilLabel').hidden = $('oil').value !== 'known';
   dishIngredients.setItems(hasEditableIngredients(recipe?.input) ? recipe.input.items : []);
   invalidate();
-  $('recipeLibrary').hidden = true;
-  recipeForm.hidden = false;
   showRecipeStep(0);
   syncPickers();
+  recipeDialog.showModal();
 }
 
-function closeRecipe() {
-  recipeForm.hidden = true;
-  $('recipeLibrary').hidden = false;
-  last = null;
-  renderRecipeList();
+function previousRecipeStep() {
+  showRecipeStep(recipeStep - 1);
+  $('recipeTitle').focus();
 }
+
+recipeDialog.addEventListener('cancel', event => {
+  if (!recipeStep) return;
+  event.preventDefault();
+  previousRecipeStep();
+});
 
 function renderSuggestions() {
   const query = $('foodSearch').value;
@@ -156,8 +166,8 @@ $('recipeTypes').onclick = event => {
 };
 $('newRecipe').onclick = () => openRecipe();
 $('recipeFilter').onchange = renderRecipeList;
-$('recipeCancel').onclick = closeRecipe;
-$('recipeBack').onclick = () => showRecipeStep(recipeStep - 1);
+$('recipeCancel').onclick = () => recipeDialog.close();
+$('recipeBack').onclick = previousRecipeStep;
 $('dishForm').oninput = invalidate;
 $('oil').onchange = () => { $('oilLabel').hidden = $('oil').value !== 'known'; invalidate(); };
 
@@ -256,7 +266,7 @@ recipeForm.onsubmit = event => {
     $('error').textContent = 'Введите название и добавьте хотя бы один ингредиент.';
     return;
   }
-  if (recipeStep < 2) { showRecipeStep(recipeStep + 1); return; }
+  if (recipeStep < 2) { showRecipeStep(recipeStep + 1); $('recipeTitle').focus(); return; }
   try {
     const weight = Number($('weight').value);
     const input = {
@@ -283,7 +293,8 @@ recipeForm.onsubmit = event => {
       state.recipes = editedRecipeId ? recipes().map(recipe => recipe.id === editedRecipeId ? last : recipe) : [...recipes(), last];
       persist();
       $('recipeFilter').value = '';
-      closeRecipe();
+      recipeDialog.close();
+      renderRecipeList();
       syncPickers();
       $('newRecipe').focus();
     };
@@ -414,6 +425,6 @@ $('needsForm').onsubmit=e=>{e.preventDefault();clearNeedsResult();try{
 }catch(err){$('needsError').textContent=err.message}};
 $('needsApply').onclick=()=>{if(!needsResult)return;state.goals.k=needsResult.rounded;persist();renderDay();$('needsApply').disabled=true;$('needsApply').textContent='✓ Цель по калориям обновлена'};
 const mealUI=mountMeals({getState:()=>state,persist,refresh:renderDay,fmt,esc});
-const navigation=mountNavigation({onScreen(screen){if(screen==='dish'&&recipeForm.hidden&&!recipes().length)openRecipe();},onBack(){if(recipeForm.hidden)return false;if(recipeStep>0)showRecipeStep(recipeStep-1);else closeRecipe();return true;}});window.BalanceApp={...navigation,importData};syncPickers=mountPickers();renderRecipeList();renderDay();try{window.AndroidFiles?.pageReady?.()}catch{}
+const navigation=mountNavigation();window.BalanceApp={...navigation,importData};syncPickers=mountPickers();renderRecipeList();renderDay();try{window.AndroidFiles?.pageReady?.()}catch{}
 
 
