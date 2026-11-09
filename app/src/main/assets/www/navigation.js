@@ -1,5 +1,5 @@
 import {icon} from './icons.js';
-export function mountNavigation(){
+export function mountNavigation({onShowScreen}={}){
   const $=id=>document.getElementById(id),menu=$('appMenu'),toggle=$('menuToggle'),about=$('aboutDialog');
   const sync=()=>{toggle.setAttribute('aria-expanded',String(menu.open));document.documentElement.classList.toggle('menu-open',menu.open)};
   let current='overview';
@@ -17,6 +17,7 @@ export function mountNavigation(){
     window.scrollTo({top:0,behavior:'instant'});
     if(target)destination?.scrollIntoView({block:'start',behavior:'instant'});
     if(focus&&destination){destination.setAttribute('tabindex','-1');destination.focus({preventScroll:true})}
+    onShowScreen?.(screen);
   }
   function goTo(id){const target=$(id),panel=target?.closest('[data-screen-panel]');if(panel)showScreen(panel.dataset.screenPanel,{target:id})}
   document.addEventListener('click',e=>{const tab=e.target.closest('[data-open-screen],.tab-item');if(tab)showScreen(tab.dataset.openScreen||tab.dataset.screen)});

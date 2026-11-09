@@ -425,6 +425,11 @@ $('needsForm').onsubmit=e=>{e.preventDefault();clearNeedsResult();try{
 }catch(err){$('needsError').textContent=err.message}};
 $('needsApply').onclick=()=>{if(!needsResult)return;state.goals.k=needsResult.rounded;persist();renderDay();$('needsApply').disabled=true;$('needsApply').textContent='✓ Цель по калориям обновлена'};
 const mealUI=mountMeals({getState:()=>state,persist,refresh:renderDay,fmt,esc});
-const navigation=mountNavigation();window.BalanceApp={...navigation,importData};syncPickers=mountPickers();renderRecipeList();renderDay();try{window.AndroidFiles?.pageReady?.()}catch{}
+const navigation = mountNavigation({
+  onShowScreen(screen) {
+    if (screen === 'dish' && !recipes().length && !recipeDialog.open) openRecipe();
+  },
+});
+window.BalanceApp={...navigation,importData};syncPickers=mountPickers();renderRecipeList();renderDay();try{window.AndroidFiles?.pageReady?.()}catch{}
 
 
