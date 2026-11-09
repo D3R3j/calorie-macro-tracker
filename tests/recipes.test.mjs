@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {foods, estimate, defaults} from '../app/src/main/assets/www/model.js';
-import {findFoods} from '../app/src/main/assets/www/recipes.js';
+import {dishTypeGroups, dishTypes, findFoods} from '../app/src/main/assets/www/recipes.js';
 import {validState, resizeEntry} from '../app/src/main/assets/www/data.js';
 
 test('Search suggests seasonings and sports nutrition after typing, with categories', () => {
@@ -25,6 +25,43 @@ test('Catalog contains 300 unique sourced profiles and keeps prior ingredient ID
   assert.equal(foods[8].source, 'fdc:169757');
   assert.deepEqual([foods[9].k, foods[9].p, foods[9].f, foods[9].c], [92, 3.38, 0.62, 19.94]);
   assert.equal(foods[75].source, 'pure:creatine');
+});
+
+test('Russian chicken fillet queries find separate raw, boiled and baked profiles', () => {
+  for (const query of ['куриное филе', 'филе курицы', 'куринного филе', 'филе куриной грудки']) {
+    const results = findFoods(foods, query, 'main').map(({food})=>food.source);
+    for (const source of ['fdc:171077','fdc:171478','fdc:171477']) assert.ok(results.includes(source), query);
+  }
+  assert.equal(foods[0].source, 'fdc:171477');
+  assert.equal(findFoods(foods, 'сырое куриное филе', 'main')[0].food.k, 120);
+  assert.equal(findFoods(foods, 'куриное филе вареное', 'main')[0].food.source, 'fdc:171478');
+});
+
+test('Everyday Russian cereals and pantry foods are discoverable by their common names', () => {
+  const queries = {
+    'гречневая ядрица':'fdc:170685', 'гречневая каша на воде':'fdc:170686',
+    'овсяная крупа':'fdc:169705', 'геркулес сухой':'fdc:173904', 'овсяная каша на воде':'fdc:173905',
+    'круглый рис сухой':'fdc:168931', 'рис вареный':'fdc:169757', 'перловка сухая':'fdc:170284',
+    'перловая каша':'fdc:170285', 'пшено сухое':'fdc:169702', 'пшенная каша на воде':'fdc:168871',
+    'кукурузная крупа':'fdc:171670', 'кукурузная каша':'fdc:171672', 'манка':'fdc:168933',
+    'полба сухая':'fdc:169745', 'полба вареная':'fdc:169746', 'булгур сухой':'fdc:170688',
+    'горох колотый сухой':'fdc:172428', 'гороховая каша':'fdc:172429',
+    'картофель сырой':'fdc:170026', 'яйца перепелиные':'fdc:172191',
+    'сгущенка':'fdc:171275', 'соль поваренная':'fdc:173468',
+  };
+  for (const [query, source] of Object.entries(queries)) {
+    assert.ok(findFoods(foods, query, 'main').some(({food})=>food.source === source), query);
+  }
+  for (const query of ['ячневая крупа', 'ячневая каша', 'каша дружба', 'полтавская крупа', 'пшеничная каша',
+    'манная каша на молоке', 'манная каша на воде', 'хлеб бородинский', 'ряженка']) {
+    assert.ok(findFoods(foods, query, 'main').length, query);
+  }
+  assert.ok(findFoods(foods, 'каша', 'main')[0].food.name.includes('каша'));
+});
+
+test('Nested dish types retain every existing saved type exactly once', () => {
+  assert.deepEqual(dishTypes.map(([type])=>type).sort(), ['dessert','main','other','salad','shake','smoothie','snack','soup']);
+  assert.deepEqual(dishTypeGroups.find(([title])=>title === 'Напитки')[1].map(([type])=>type), ['shake','smoothie']);
 });
 
 test('A saved recipe is portable and a diary portion uses an independent snapshot', () => {

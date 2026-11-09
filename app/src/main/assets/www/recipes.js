@@ -1,10 +1,12 @@
 import {ingredientFood, validCustomFood} from './model.js';
 
-export const dishTypes = [
-  ['soup', 'Первое'], ['main', 'Второе'], ['salad', 'Салат'],
-  ['dessert', 'Десерт'], ['shake', 'Коктейль'], ['smoothie', 'Смузи'],
-  ['snack', 'Перекус'], ['other', 'Другое'],
+export const dishTypeGroups = [
+  ['Основные блюда', [['soup', 'Первое'], ['main', 'Второе'], ['salad', 'Салат']]],
+  ['Напитки', [['shake', 'Коктейль'], ['smoothie', 'Смузи']]],
+  ['Десерты и перекусы', [['dessert', 'Десерт'], ['snack', 'Перекус']]],
+  ['', [['other', 'Другое']]],
 ];
+export const dishTypes = dishTypeGroups.flatMap(([, types]) => types);
 const preferences = {
   soup: ['Овощи и зелень', 'Приправы', 'Мясо, рыба и яйца', 'Крупы и бобовые'],
   main: ['Мясо, рыба и яйца', 'Крупы и бобовые', 'Овощи и зелень', 'Соусы', 'Приправы'],
@@ -15,7 +17,7 @@ const preferences = {
   snack: ['Фрукты и орехи', 'Молочное'],
 };
 
-const normalize = text => text.toLowerCase().replaceAll('ё','е').trim();
+const normalize = text => text.toLowerCase().replaceAll('ё','е').replace(/[-‑–—]+/gu, ' ').replace(/\s+/gu, ' ').trim();
 const russian = new Intl.Collator('ru');
 
 export function findFoods(catalog, query, type, excluded = new Set()) {
@@ -26,13 +28,17 @@ export function findFoods(catalog, query, type, excluded = new Set()) {
   const matches = [];
   for (const food of catalog) {
     if (excluded.has(food.id)) continue;
-    // Normalize once per name, even when a query has several words.
+    // Match against each name independently so different variants cannot supply unrelated words.
     const name = normalize(food.name);
-    if (!words.every(word => name.includes(word))) continue;
+    const aliases = Number.isInteger(food.id) ? food.aliases ?? [] : [];
+    const matchesName = words.every(word => name.includes(word));
+    const matchingAliases = aliases.map(normalize).filter(label => words.every(word => label.includes(word)));
+    if (!matchesName && !matchingAliases.length) continue;
     const category = food.category ?? 'Мои продукты';
     const orderIndex = order.indexOf(category);
     const priority = orderIndex < 0 ? order.length : orderIndex;
-    const relevance = name === text ? 0 : name.startsWith(text) ? 1 : 2;
+    const relevance = name === text ? 0 : matchingAliases.includes(text) ? 1 :
+      name.startsWith(text) ? 2 : matchesName ? 3 : 4;
     matches.push({food, category, priority, relevance});
   }
   return matches.sort((a,b) => a.relevance-b.relevance || a.priority-b.priority ||

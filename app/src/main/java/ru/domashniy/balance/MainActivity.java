@@ -10,6 +10,9 @@ import android.webkit.*;
 import android.widget.*;
 import android.view.*;
 import androidx.core.content.FileProvider;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.webkit.WebViewAssetLoader;
 import org.json.*;
 import java.io.*;
@@ -33,7 +36,13 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         LinearLayout layout=new LinearLayout(this);appLayout=layout;layout.setOrientation(LinearLayout.VERTICAL);
         layout.setBackgroundColor(0xfff4f2ef);
-        layout.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
+        ViewCompat.setOnApplyWindowInsetsListener(layout,(view,windowInsets)->{
+            int handled = WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout();
+            Insets padding = windowInsets.getInsets(handled);
+            view.setPadding(padding.left,padding.top,padding.right,padding.bottom);
+            // WebView still receives keyboard updates, with the native padding removed from its insets.
+            return new WindowInsetsCompat.Builder(windowInsets).setInsets(handled,Insets.NONE).build();
+        });
         web=new WebView(this);layout.addView(web,new LinearLayout.LayoutParams(-1,0,1));setContentView(layout);
         if(Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::handleBack);
         WebSettings ws=web.getSettings();ws.setJavaScriptEnabled(true);ws.setDomStorageEnabled(true);ws.setAllowFileAccess(false);ws.setAllowContentAccess(false);ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);

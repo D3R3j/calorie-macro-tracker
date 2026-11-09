@@ -6,7 +6,7 @@ import {mountNavigation} from './navigation.js';
 import {validState,resizeEntry} from './data.js';
 import {mountIngredientRows,hasEditableIngredients} from './ingredients-ui.js';
 import {mountPickers} from './pickers.js';
-import {dishTypes,findFoods} from './recipes.js';
+import {dishTypeGroups,dishTypes,findFoods} from './recipes.js';
 const $=id=>document.getElementById(id),keys=['k','p','f','c'],labels={k:'Калории',p:'Белки',f:'Жиры',c:'Углеводы'},unit=k=>k==='k'?'ккал':'г',fmt=n=>Math.round(Number(n.toFixed(8))).toLocaleString('ru-RU'),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const formatGrams = new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 1}).format;
 const plural = new Intl.PluralRules('ru');
@@ -66,8 +66,13 @@ const recipes = () => state.recipes ?? [];
 const typeName = type => dishTypes.find(([key]) => key === type)?.[1] ?? 'Другое';
 $('recipeFilter').innerHTML = '<option value="">Все блюда</option>' +
   dishTypes.map(([key, name]) => `<option value="${key}">${name}</option>`).join('');
-$('recipeTypes').innerHTML = dishTypes.map(([key, name]) =>
-  `<button type="button" class="secondary" data-type="${key}" aria-pressed="false">${name}</button>`).join('');
+$('recipeTypes').innerHTML = dishTypeGroups.map(([group, types]) => {
+  const options = types.map(([key, name]) =>
+    `<li><button type="button" class="recipe-type" data-type="${key}" aria-pressed="false">${name}</button></li>`).join('');
+  return group
+    ? `<li><details name="recipe-type-group"><summary>${group}</summary><ul>${options}</ul></details></li>`
+    : options;
+}).join('');
 
 function renderRecipeList() {
   const hasRecipes = recipes().length > 0;
@@ -93,6 +98,7 @@ function showRecipeStep(step) {
   for (const panel of recipeForm.querySelectorAll('[data-recipe-step]')) panel.hidden = Number(panel.dataset.recipeStep) !== step;
   $('recipeStepCount').textContent = 'Шаг ' + (step + 1) + ' из 3';
   $('recipeBack').hidden = step === 0;
+  $('recipeNext').hidden = step === 0 && !recipeType;
   $('recipeNext').textContent = step === 2 ? 'Рассчитать блюдо' : 'Далее';
   $('error').textContent = '';
   $('recipeTypes').querySelectorAll('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.type === recipeType)));
@@ -103,6 +109,9 @@ function showRecipeStep(step) {
 function openRecipe(recipe) {
   editedRecipeId = recipe?.id ?? null;
   recipeType = recipe?.type ?? '';
+  $('recipeTypes').querySelectorAll('details').forEach((group, index) => {
+    group.open = recipeType ? !!group.querySelector(`[data-type="${recipeType}"]`) : index === 0;
+  });
   recipeForm.reset();
   $('recipeTitle').textContent = recipe ? 'Изменить блюдо' : 'Новое блюдо';
   $('name').value = recipe?.name ?? '';
