@@ -31,15 +31,50 @@ export const foods = [
  ['Миндаль',21.15,49.93,21.55], // 170567
  ['Грецкий орех',15.23,65.21,13.71], // 170187
  ['Кунжут',17.73,49.67,23.45], // 170150
-].map(([name,p,f,c],id)=>({id,name,p,f,c,pieceGrams:pieceWeights.get(id)}));
+
+ // Дополнение USDA и TempoLife (CC BY 4.0).
+ ['Чеснок',6.36,0.5,33.06,'Приправы'], // 169230
+ ['Чёрный перец',10.39,3.26,63.95,'Приправы'], // 170931
+ ['Паприка',14.14,12.89,53.99,'Приправы'], // 171329
+ ['Куркума',9.68,3.25,67.14,'Приправы'], // 172231
+ ['Корица',3.99,1.24,80.59,'Приправы'], // 171320
+ ['Какао без сахара',19.6,13.7,57.9,'Для напитков'], // 169593
+ ['Мёд',0.3,0.0,82.4,'Для напитков'], // 169640
+ ['Кетчуп',1.04,0.1,27.4,'Соусы'], // 168556
+ ['Майонез',0.96,74.85,0.57,'Соусы'], // 171009
+ ['Соевый соус',8.14,0.57,4.93,'Соусы'], // 174277
+ ['Горчица',3.74,3.34,5.83,'Соусы'], // 172234
+ ['Томатная паста',4.32,0.47,18.91,'Соусы'], // 170459
+ ['Вустерский соус',0.0,0.0,19.17,'Соусы'], // 171610
+ ['Кефир 2,5%',3.4,2.5,4.8,'Молочное'], // TempoLife 1289
+ ['Протеин соевый (справочный)',55.6,5.6,28.9,'Спортивное питание'], // TempoLife 16688
+ ['Протеин сывороточный (справочный)',78.1,1.6,6.3,'Спортивное питание'], // TempoLife 16687
+ ['Изолят сывороточного протеина (справочный)',58.1,1.2,29.1,'Спортивное питание'], // TempoLife 16684
+ ['Медовая горчица',1.3,4.2,40.3,'Соусы'], // TempoLife 567
+ ['Дижонская горчица',3.7,4.0,5.3,'Соусы'], // TempoLife 565
+ ['Песто с базиликом',4.2,36.4,6.9,'Соусы'], // TempoLife 15180
+ ['Креатин моногидрат без добавок',0,0,0,'Спортивное питание'], // Без белка, жира и углеводов
+].map(([name,p,f,c,category],id)=>({id,name,p,f,c,category,pieceGrams:pieceWeights.get(id)}));
 export const defaults={k:2450,p:150,f:70,c:305};
 export const energy=v=>4*v.p+9*v.f+4*v.c;
-const oilLimits = {boil: .015, stew: .04, bake: .05, fry: .10};
+const oilLimits = {raw: .03, boil: .015, stew: .04, bake: .05, fry: .10};
 const macroKeys = ['p', 'f', 'c'];
 const massTolerance = .001;
 
+export function validCustomFood(food) {
+  return !!food && /^custom-[0-9a-f-]{36}$/.test(food.id) &&
+    typeof food.name === 'string' && food.name.trim().length > 0 && food.name.length <= 100 &&
+    macroKeys.every(key => Number.isFinite(food[key]) && food[key] >= 0 && food[key] <= 100) &&
+    food.p + food.f + food.c <= 100.5;
+}
+
+export function ingredientFood(item) {
+  if (Number.isInteger(item?.id)) return foods[item.id];
+  return item?.id === item?.food?.id && validCustomFood(item?.food) ? item.food : undefined;
+}
+
 function prepareIngredient(item) {
-  const food = Number.isInteger(item?.id) ? foods[item.id] : undefined;
+  const food = ingredientFood(item);
   if (!food) throw Error('Выберите продукт из справочника.');
   const mode = item.mode ?? 'rank';
   if (mode === 'rank' && [1, 3, 6].includes(item.rank)) {

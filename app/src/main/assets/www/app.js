@@ -1,4 +1,4 @@
-import {foods,defaults,estimate,totals} from './model.js';
+import {foods,defaults,estimate,totals,validCustomFood} from './model.js';
 import {calorieNeeds} from './needs.js';
 import {mountMeals} from './meals-ui.js';
 import {icon} from './icons.js';
@@ -6,6 +6,7 @@ import {mountNavigation} from './navigation.js';
 import {validState,resizeEntry} from './data.js';
 import {mountIngredientRows,hasEditableIngredients} from './ingredients-ui.js';
 import {mountPickers} from './pickers.js';
+import {dishTypes,findFoods} from './recipes.js';
 const $=id=>document.getElementById(id),keys=['k','p','f','c'],labels={k:'Калории',p:'Белки',f:'Жиры',c:'Углеводы'},unit=k=>k==='k'?'ккал':'г',fmt=n=>Math.round(Number(n.toFixed(8))).toLocaleString('ru-RU'),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function renderTheme(){const dark=document.documentElement.dataset.theme==='dark';$('themeToggle').innerHTML=icon(dark?'sun':'moon');$('themeToggle').setAttribute('aria-pressed',String(dark));$('themeToggle').setAttribute('aria-label',dark?'Включить светлую тему':'Включить тёмную тему');$('themeToggle').title=dark?'Светлая тема':'Тёмная тема';$('menuThemeText').textContent=dark?'Светлая тема':'Тёмная тема';$('menuThemeIcon').innerHTML=icon(dark?'sun':'moon');document.querySelector('meta[name="theme-color"]').content=dark?'#000000':'#f2f2f7';try{window.AndroidFiles?.setDarkMode?.(dark)}catch{}}
 $('themeToggle').onclick=()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=theme;try{localStorage.setItem('home-balance-theme',theme)}catch{$('status').textContent='Выбор темы действует до закрытия страницы: сохранение в браузере недоступно.'}renderTheme()};renderTheme();
@@ -20,7 +21,7 @@ let syncPickers = () => {};
 const valid=validState;
 try{const saved=localStorage.getItem('home-balance-v1');if(saved){const parsed=JSON.parse(saved);if(!valid(parsed))throw Error();state=parsed}}catch{$('status').textContent='Не удалось прочитать сохранённые данные. Импортируйте резервную копию.'}
 function persist(){try{localStorage.setItem('home-balance-v1',JSON.stringify(state));$('status').textContent=''}catch{$('status').textContent='Не удалось сохранить данные. Экспортируйте копию, прежде чем закрывать страницу.'}}
-$('date').value=today();$('food').innerHTML=foods.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
+$('date').value=today();
 function invalidate(){
   last=null;
   $('error').textContent='';
@@ -30,10 +31,11 @@ const gramSetting = $('allowIngredientGrams');
 const allowGrams = () => gramSetting.checked;
 try { gramSetting.checked = localStorage.getItem('home-balance-ingredient-grams') === '1'; } catch {}
 let recipeEdited = false;
-const dishIngredients = mountIngredientRows($('ingredients'), {allowGrams, onChange: invalidate});
+const dishIngredients = mountIngredientRows($('ingredients'), {allowGrams, esc, onChange: invalidate});
 const entryIngredients = mountIngredientRows($('entryIngredients'), {
   allowGrams,
   removable: false,
+  esc,
   onChange: () => { recipeEdited = true; $('entryError').textContent = ''; },
 });
 $('entryIngredients').addEventListener('invalid', () => { $('entryRecipe').open = true; }, true);
@@ -51,76 +53,241 @@ gramSetting.onchange = () => {
   renderIngredientSetting();
 };
 $('recipeSettingsClose').onclick = () => $('recipeSettings').close();
-$('addFood').onclick = () => dishIngredients.add(Number($('food').value));
-$('dishForm').oninput=invalidate;$('oil').onchange=()=>{$('oilLabel').hidden=$('oil').value!=='known';invalidate()};
-$('dishForm').onsubmit = (event) => {
-  event.preventDefault();
-  $('error').textContent = '';
+let recipeStep = 0;
+let recipeType = '';
+let editedRecipeId = null;
+let selectedRecipe = null;
+let recipeDate = '';
+const recipeForm = $('dishForm');
+const recipes = () => state.recipes ?? [];
+const typeName = type => dishTypes.find(([key]) => key === type)?.[1] ?? 'Другое';
+$('recipeFilter').innerHTML = '<option value="">Все блюда</option>' +
+  dishTypes.map(([key, name]) => `<option value="${key}">${name}</option>`).join('');
+$('recipeTypes').innerHTML = dishTypes.map(([key, name]) =>
+  `<button type="button" class="secondary" data-type="${key}" aria-pressed="false">${name}</button>`).join('');
 
+function renderRecipeList() {
+  const filter = $('recipeFilter').value;
+  const visible = recipes().filter(recipe => !filter || recipe.type === filter);
+  $('recipeList').innerHTML = visible.length ? visible.map(recipe => `
+    <article class="recipe-card">
+      <div><p class="hint">${typeName(recipe.type)}</p><h3>${esc(recipe.name)}</h3>
+      <p class="hint">${fmt(recipe.input.weight)} г · ≈ ${fmt(recipe.result.k.mid / recipe.input.weight * 100)} ккал на 100 г</p></div>
+      <div class="actions"><button type="button" class="primary" data-add-recipe="${esc(recipe.id)}">Записать порцию</button>
+      <button type="button" class="quiet" data-edit-recipe="${esc(recipe.id)}">Изменить</button>
+      <button type="button" class="quiet" data-delete-recipe="${esc(recipe.id)}">Удалить</button></div>
+    </article>`).join('') : `<p class="empty">${filter ? 'Блюд этого типа пока нет.' : 'Здесь будут ваши блюда. Добавьте первое, чтобы записывать порции повторно.'}</p>`;
+}
+
+function showRecipeStep(step) {
+  recipeStep = step;
+  for (const panel of recipeForm.querySelectorAll('[data-recipe-step]')) panel.hidden = Number(panel.dataset.recipeStep) !== step;
+  $('recipeStepCount').textContent = 'Шаг ' + (step + 1) + ' из 3';
+  $('recipeBack').hidden = step === 0;
+  $('recipeNext').textContent = step === 2 ? 'Рассчитать блюдо' : 'Далее';
+  $('error').textContent = '';
+  $('recipeTypes').querySelectorAll('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.type === recipeType)));
+  if (step === 1) renderSuggestions();
+  window.scrollTo(0,0);
+}
+
+function openRecipe(recipe) {
+  editedRecipeId = recipe?.id ?? null;
+  recipeType = recipe?.type ?? '';
+  recipeForm.reset();
+  $('recipeTitle').textContent = recipe ? 'Изменить блюдо' : 'Новое блюдо';
+  $('name').value = recipe?.name ?? '';
+  $('weight').value = recipe?.input.weight ?? '';
+  $('method').value = recipe?.input.method ?? 'stew';
+  $('oil').value = recipe?.input.oil ?? 'unknown';
+  $('oilGrams').value = recipe?.input.oilGrams ?? 15;
+  $('water').value = recipe?.input.water ?? 0;
+  $('oilLabel').hidden = $('oil').value !== 'known';
+  dishIngredients.setItems(hasEditableIngredients(recipe?.input) ? recipe.input.items : []);
+  invalidate();
+  $('recipeLibrary').hidden = true;
+  recipeForm.hidden = false;
+  showRecipeStep(0);
+  syncPickers();
+}
+
+function closeRecipe() {
+  recipeForm.hidden = true;
+  $('recipeLibrary').hidden = false;
+  last = null;
+  renderRecipeList();
+}
+
+function renderSuggestions() {
+  const query = $('foodSearch').value;
+  const used = new Set(dishIngredients.getItems().map(item => item.id));
+  const matches = findFoods([...foods, ...(state.customFoods ?? [])], query, recipeType).filter(({food}) => !used.has(food.id));
+  const groups = [...new Set(matches.map(item => item.category))];
+  $('foodSuggestions').innerHTML = groups.map(category => `<section>
+    <p class="hint">${esc(category)}</p>
+    ${matches.filter(item => item.category === category).map(({food}) =>
+      `<button type="button" class="picker-option" data-food-id="${esc(food.id)}">${esc(food.name)}</button>`).join('')}
+  </section>`).join('') || (query.trim() ? '<p class="hint">Нет новых совпадений. Можно добавить свой ингредиент.</p>' : '');
+}
+$('foodSearch').oninput = renderSuggestions;
+$('foodSuggestions').onclick = event => {
+  const id = event.target.closest('[data-food-id]')?.dataset.foodId;
+  const food = id?.startsWith('custom-') ? state.customFoods?.find(item => item.id === id) : foods[Number(id)];
+  if (!food) return;
+  dishIngredients.add(food);
+  $('foodSearch').value = '';
+  renderSuggestions();
+  $('foodSearch').focus();
+};
+$('recipeTypes').onclick = event => {
+  const type = event.target.closest('[data-type]')?.dataset.type;
+  if (!type) return;
+  recipeType = type;
+  if (!editedRecipeId) {
+    const noHeat = ['shake','smoothie','salad'].includes(type);
+    $('method').value = noHeat ? 'raw' : 'stew';
+    $('oil').value = noHeat ? 'none' : 'unknown';
+    $('oilLabel').hidden = true;
+    syncPickers();
+  }
+  showRecipeStep(1);
+  $('name').focus();
+};
+$('newRecipe').onclick = () => openRecipe();
+$('recipeFilter').onchange = renderRecipeList;
+$('recipeCancel').onclick = closeRecipe;
+$('recipeBack').onclick = () => showRecipeStep(recipeStep - 1);
+$('dishForm').oninput = invalidate;
+$('oil').onchange = () => { $('oilLabel').hidden = $('oil').value !== 'known'; invalidate(); };
+
+$('customFood').onclick = () => {
+  $('customFoodForm').reset();
+  $('customFoodName').value = $('foodSearch').value.trim();
+  $('customFoodError').textContent = '';
+  $('customFoodDialog').showModal();
+};
+$('customFoodCancel').onclick = () => $('customFoodDialog').close();
+$('customFoodForm').onsubmit = event => {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const food = {
+    id: 'custom-' + crypto.randomUUID(), name: $('customFoodName').value.trim(),
+    p: Number(form.get('p')), f: Number(form.get('f')), c: Number(form.get('c')),
+  };
+  if (!validCustomFood(food)) {
+    $('customFoodError').textContent = 'Проверьте название и БЖУ. Сумма значений должна помещаться в 100 г продукта.';
+    return;
+  }
+  if ($('keepCustomFood').checked) {
+    if ((state.customFoods?.length ?? 0) >= 500) {
+      $('customFoodError').textContent = 'В «Моих продуктах» уже 500 записей. Снимите отметку, чтобы добавить только в блюдо.';
+      return;
+    }
+    state.customFoods = [...(state.customFoods ?? []), food];
+    persist();
+  }
+  dishIngredients.add(food);
+  $('foodSearch').value = '';
+  renderSuggestions();
+  $('customFoodDialog').close();
+};
+
+$('recipeList').onclick = event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  const {editRecipe, deleteRecipe, addRecipe} = button.dataset;
+  const recipe = recipes().find(item => item.id === (editRecipe ?? deleteRecipe ?? addRecipe));
+  if (!recipe) return;
+  if (editRecipe) { openRecipe(recipe); return; }
+  selectedRecipe = recipe;
+  if (deleteRecipe) {
+    $('recipeDeleteName').textContent = recipe.name;
+    $('recipeDeleteDialog').showModal();
+    return;
+  }
+  recipeDate = $('date').value || today();
+  $('recipePortionTitle').textContent = recipe.name;
+  $('recipePortionDate').textContent = 'Дата записи: ' + new Date(recipeDate + 'T12:00:00').toLocaleDateString('ru-RU');
+  $('recipePortion').value = '';
+  $('recipePortion').max = recipe.input.weight;
+  $('recipeMeal').innerHTML = mealUI.options();
+  $('recipePortionError').textContent = '';
+  syncPickers();
+  $('recipePortionDialog').showModal();
+};
+$('recipeDeleteCancel').onclick = () => $('recipeDeleteDialog').close();
+$('recipeDeleteApply').onclick = () => {
+  state.recipes = recipes().filter(recipe => recipe.id !== selectedRecipe?.id);
+  persist();
+  renderRecipeList();
+  $('recipeDeleteDialog').close();
+};
+$('recipePortionCancel').onclick = () => $('recipePortionDialog').close();
+$('recipePortionForm').onsubmit = event => {
+  event.preventDefault();
   try {
+    if (!selectedRecipe) return;
+    const recipe = selectedRecipe;
+    const entry = resizeEntry({
+      ...recipe, id: crypto.randomUUID(), date: recipeDate, portion: recipe.input.weight,
+    }, {name:recipe.name, portion:Number($('recipePortion').value), meal:$('recipeMeal').value});
+    state.entries.push(entry);
+    persist();
+    renderDay();
+    $('recipePortionDialog').close();
+    navigation.showScreen('diary');
+  } catch (error) { $('recipePortionError').textContent = error.message; }
+};
+
+recipeForm.noValidate = true;
+recipeForm.onsubmit = event => {
+  event.preventDefault();
+  if (!recipeType) { $('error').textContent = 'Выберите тип блюда.'; return; }
+  const active = recipeForm.querySelector('[data-recipe-step="' + recipeStep + '"]');
+  for (const input of active.querySelectorAll('input')) {
+    if (!input.closest('[hidden]') && !input.reportValidity()) {
+      input.closest('details')?.setAttribute('open', '');
+      $('error').textContent = 'Проверьте обязательные поля и значения на этом шаге.';
+      return;
+    }
+  }
+  if (recipeStep === 1 && (!$('name').value.trim() || !dishIngredients.getItems().length)) {
+    $('error').textContent = 'Введите название и добавьте хотя бы один ингредиент.';
+    return;
+  }
+  if (recipeStep < 2) { showRecipeStep(recipeStep + 1); return; }
+  try {
+    const weight = Number($('weight').value);
     const input = {
-      weight: Number($('weight').value),
-      portion: Number($('portion').value),
-      items: dishIngredients.getItems(),
-      method: $('method').value,
-      oil: $('oil').value,
-      oilGrams: Number($('oilGrams').value),
-      water: Number($('water').value),
+      weight, portion: weight, items: dishIngredients.getItems(),
+      method: $('method').value, oil: $('oil').value,
+      oilGrams: Number($('oilGrams').value), water: Number($('water').value),
     };
     const result = estimate(input);
-    last = {
-      id: crypto.randomUUID(),
-      name: $('name').value.trim() || 'Домашнее блюдо',
-      date: $('date').value || today(),
-      portion: input.portion,
-      result,
-      input,
-    };
-
+    last = {id: editedRecipeId ?? crypto.randomUUID(), type: recipeType, name:$('name').value.trim(), input, result};
     const energy = result.k;
-    const delta = Math.max(energy.mid - energy.low, energy.high - energy.mid);
-    const spread = fmt(delta) === '0'
-      ? 'Разброс модели меньше 1 ккал'
-      : `Разброс модели до ±${fmt(delta)} ккал`;
-    const macros = keys.slice(1).map((key) => {
-      const { low, mid, high } = result[key];
-      return `<div>
-        <span>${labels[key]}</span>
-        <strong>${fmt(mid)} г</strong>
-        ${fmt(low) === fmt(high) ? '' : `<small>${fmt(low)}–${fmt(high)} г</small>`}
-      </div>`;
+    const macros = keys.slice(1).map(key => {
+      const band = result[key];
+      return `<div><span>${labels[key]}</span><strong>${fmt(band.mid)} г</strong>${fmt(band.low) === fmt(band.high) ? '' : `<small>${fmt(band.low)}–${fmt(band.high)} г</small>`}</div>`;
     }).join('');
-
     $('result').innerHTML = `
-      <div class="result-main">
-        <span class="result-dish">${esc(last.name)} · ${fmt(input.portion)} г</span>
-        <div class="big">≈ ${fmt(energy.mid)} <small>ккал</small></div>
-        ${fmt(energy.low) === fmt(energy.high) ? '' : `<div class="range">Диапазон ${fmt(energy.low)}–${fmt(energy.high)} ккал</div>`}
-        <p>${spread}</p>
-      </div>
+      <div class="result-main"><span>Всё блюдо · ${fmt(weight)} г</span>
+      <div class="big">≈ ${fmt(energy.mid)} <small>ккал</small></div>
+      <p>${fmt(energy.low) === fmt(energy.high) ? 'Разброс модели меньше 1 ккал' : 'Диапазон ' + fmt(energy.low) + '–' + fmt(energy.high) + ' ккал'} · ≈ ${fmt(energy.mid / weight * 100)} ккал на 100 г</p></div>
       <div class="macro-result">${macros}</div>
-      <p class="notice">Это оценка по составу. Реальное значение может отличаться.</p>
-      <p class="hint">На 100 г: около ${fmt(energy.mid / input.portion * 100)} ккал. Всё блюдо: около ${fmt(energy.mid / input.portion * input.weight)} ккал.</p>
-      <label>Приём пищи<select id="meal">${mealUI.options()}</select></label>
-      <button type="button" id="saveEntry" class="primary">Добавить в дневник</button>`;
-
-    $('saveEntry').onclick = () => {
+      <button type="button" id="saveRecipe" class="primary">Сохранить блюдо</button>`;
+    $('saveRecipe').onclick = () => {
       if (!last) return;
-      state.entries.push({ ...last, date: $('date').value || today(), meal: $('meal').value });
+      if (!editedRecipeId && recipes().length >= 500) { $('error').textContent = 'В книге уже 500 блюд.'; return; }
+      state.recipes = editedRecipeId ? recipes().map(recipe => recipe.id === editedRecipeId ? last : recipe) : [...recipes(), last];
       persist();
-      renderDay();
-      last = null;
-      $('saveEntry').disabled = true;
-      $('saveEntry').textContent = 'Порция добавлена';
-      navigation.showScreen('diary');
+      $('recipeFilter').value = '';
+      closeRecipe();
+      syncPickers();
+      $('newRecipe').focus();
     };
-
-    const resultPanel = $('result').closest('.result-card');
-    resultPanel.focus({ preventScroll: true });
-    resultPanel.scrollIntoView({ block: 'nearest' });
-  } catch (error) {
-    $('error').textContent = error.message;
-  }
+    $('saveRecipe').focus();
+  } catch (error) { $('error').textContent = error.message; }
 };
 function renderBudget(consumed, goals, hasEntries) {
   const remaining = goals.k - consumed.k.mid;
@@ -225,7 +392,7 @@ $('export').onclick=()=>{const json=JSON.stringify(state,null,2);if(window.Andro
 function confirmImport(data){$('importSummary').textContent='В копии '+data.entries.length+' записей. Цель: '+fmt(data.goals.k)+' ккал в день.';const dialog=$('importDialog');dialog.returnValue='';dialog.showModal();return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='apply'),{once:true}))}
 $('applyImport').onclick=()=>$('importDialog').close('apply');$('cancelImport').onclick=()=>$('importDialog').close('cancel');
 async function importData(text){
-  try{if(typeof text!=='string'||text.length>10000000)throw Error('Слишком большой файл.');const data=JSON.parse(text);if(!valid(data))throw Error('Неподходящий формат резервной копии.');navigation.showScreen('diary');if(!(await confirmImport(data)))return false;state=data;pendingDeletion=null;$('snackbar').hidden=true;persist();renderDay();restoreNeedsProfile();return true}catch(err){$('status').textContent='Импорт не выполнен: '+err.message;return false}
+  try{if(typeof text!=='string'||text.length>10000000)throw Error('Слишком большой файл.');const data=JSON.parse(text);if(!valid(data))throw Error('Неподходящий формат резервной копии.');navigation.showScreen('diary');if(!(await confirmImport(data)))return false;state=data;closeRecipe();pendingDeletion=null;$('snackbar').hidden=true;persist();renderDay();restoreNeedsProfile();return true}catch(err){$('status').textContent='Импорт не выполнен: '+err.message;return false}
 }
 $('import').addEventListener('click',e=>{if(window.AndroidFiles?.importJson){e.preventDefault();window.AndroidFiles.importJson()}});
 $('import').onchange=async e=>{try{const file=e.target.files[0];if(file)await importData(await file.text())}finally{e.target.value=''}};
@@ -246,6 +413,6 @@ $('needsForm').onsubmit=e=>{e.preventDefault();clearNeedsResult();try{
 }catch(err){$('needsError').textContent=err.message}};
 $('needsApply').onclick=()=>{if(!needsResult)return;state.goals.k=needsResult.rounded;persist();renderDay();$('needsApply').disabled=true;$('needsApply').textContent='✓ Цель по калориям обновлена'};
 const mealUI=mountMeals({getState:()=>state,persist,refresh:renderDay,fmt,esc});
-const navigation=mountNavigation();window.BalanceApp={...navigation,importData};syncPickers=mountPickers();renderDay();try{window.AndroidFiles?.pageReady?.()}catch{}
+const navigation=mountNavigation({onScreen(screen){if(screen==='dish'&&recipeForm.hidden&&!recipes().length)openRecipe();},onBack(){if(recipeForm.hidden)return false;if(recipeStep>0)showRecipeStep(recipeStep-1);else closeRecipe();return true;}});window.BalanceApp={...navigation,importData};syncPickers=mountPickers();renderRecipeList();renderDay();try{window.AndroidFiles?.pageReady?.()}catch{}
 
 

@@ -1,37 +1,38 @@
-import {foods} from './model.js';
+import {ingredientFood} from './model.js';
 
 const modes = {rank: 'Доля', pieces: 'Штуки', grams: 'Граммы'};
 const ranks = [[1, 'Немного'], [3, 'Много'], [6, 'Основа']];
 
-export function mountIngredientRows(root, {allowGrams, onChange, removable = true}) {
+export function mountIngredientRows(root, {allowGrams, onChange, esc, removable = true}) {
   let items = [];
 
   function render() {
     root.innerHTML = items.length
       ? items.map((item, index) => {
-          const food = foods[item.id];
+          const food = ingredientFood(item);
+          const name = esc(food.name);
           const mode = item.mode ?? 'rank';
           const available = ['rank'];
           if (food.pieceGrams) available.push('pieces');
           if (allowGrams() || mode === 'grams') available.push('grams');
           const modeField = available.length > 1
-            ? `<select data-mode="${index}" aria-label="Способ ввода: ${food.name}">${available.map(value =>
+            ? `<select data-mode="${index}" aria-label="Способ ввода: ${name}">${available.map(value =>
                 `<option value="${value}" ${mode === value ? 'selected' : ''}>${modes[value]}</option>`
               ).join('')}</select>`
             : '';
           const amount = Number.isFinite(item.amount) ? item.amount : '';
           const quantity = mode === 'rank'
-            ? `<select aria-label="Доля ${food.name}" data-rank="${index}">${ranks.map(([value, title]) =>
+            ? `<select aria-label="Доля ${name}" data-rank="${index}">${ranks.map(([value, title]) =>
                 `<option value="${value}" ${item.rank === value ? 'selected' : ''}>${title}</option>`
               ).join('')}</select>`
-            : `<input type="number" required aria-label="${mode === 'pieces' ? 'Штук' : 'Граммов'}: ${food.name}" data-amount="${index}" value="${amount}"
+            : `<input type="number" required aria-label="${mode === 'pieces' ? 'Штук' : 'Граммов'}: ${name}" data-amount="${index}" value="${amount}"
                 min="${mode === 'pieces' ? '1' : '0.1'}" max="100000" step="${mode === 'pieces' ? '1' : '0.1'}"
                 inputmode="${mode === 'pieces' ? 'numeric' : 'decimal'}" placeholder="${mode === 'pieces' ? 'Шт.' : 'Граммы'}">`;
           return `<div class="ingredient">
-            <div class="ingredient-name"><strong>${food.name}</strong>
+            <div class="ingredient-name"><strong>${name}</strong>
               ${mode === 'pieces' ? `<small>1 шт. ≈ ${food.pieceGrams} г</small>` : ''}
             </div>
-            ${removable ? `<button type="button" data-remove-ingredient="${index}" aria-label="Удалить ${food.name}">×</button>` : ''}
+            ${removable ? `<button type="button" data-remove-ingredient="${index}" aria-label="Удалить ${name}">×</button>` : ''}
             <div class="ingredient-quantity">${modeField}${quantity}</div>
           </div>`;
         }).join('')
@@ -44,9 +45,7 @@ export function mountIngredientRows(root, {allowGrams, onChange, removable = tru
       const index = Number(control.dataset.mode);
       const item = items[index];
       const mode = control.value;
-      items[index] = mode === 'rank'
-        ? {id: item.id, rank: 1}
-        : {id: item.id, mode, amount: mode === 'pieces' ? 1 : undefined};
+      items[index] = {...item, mode, rank: 1, amount: mode === 'pieces' ? 1 : undefined};
       render();
       root.querySelector('[data-amount="' + index + '"]')?.focus();
     } else if (control.dataset.rank !== undefined) {
@@ -80,10 +79,11 @@ export function mountIngredientRows(root, {allowGrams, onChange, removable = tru
       items = structuredClone(value);
       render();
     },
-    add(id) {
-      const food = foods[id];
-      if (!food || items.some(item => item.id === id)) return;
-      items.push(food.pieceGrams ? {id, mode: 'pieces', amount: 1} : {id, rank: 1});
+    add(food) {
+      const {id} = food;
+      if (items.some(item => item.id === id)) return;
+      const entry = Number.isInteger(id) ? {id} : {id, food};
+      items.push(food.pieceGrams ? {...entry, mode: 'pieces', amount: 1} : {...entry, rank: 1});
       render();
       onChange();
     },
@@ -92,11 +92,12 @@ export function mountIngredientRows(root, {allowGrams, onChange, removable = tru
 
 export function hasEditableIngredients(input) {
   const items = input?.items;
-  return Array.isArray(items) && items.length > 0 && items.length <= foods.length &&
+  return Array.isArray(items) && items.length > 0 && items.length <= 500 &&
     items.every(item => {
-      if (!Number.isInteger(item?.id) || !foods[item.id]) return false;
+      const food = ingredientFood(item);
+      if (!food) return false;
       if ((item.mode ?? 'rank') === 'rank') return ranks.some(([value]) => value === item.rank);
-      if (item.mode === 'pieces') return foods[item.id].pieceGrams && Number.isInteger(item.amount) && item.amount >= 1;
+      if (item.mode === 'pieces') return food.pieceGrams && Number.isInteger(item.amount) && item.amount >= 1;
       return item.mode === 'grams' && Number.isFinite(item.amount) && item.amount > 0;
     });
 }

@@ -1,5 +1,5 @@
 import {icon} from './icons.js';
-export function mountNavigation(){
+export function mountNavigation({onScreen=()=>{},onBack=()=>false}={}){
   const $=id=>document.getElementById(id),menu=$('appMenu'),toggle=$('menuToggle'),about=$('aboutDialog');
   const sync=()=>{toggle.setAttribute('aria-expanded',String(menu.open));document.documentElement.classList.toggle('menu-open',menu.open)};
   let current='overview';
@@ -12,6 +12,7 @@ export function mountNavigation(){
     close();current=screen;
     for(const panel of document.querySelectorAll('[data-screen-panel]'))panel.hidden=panel.dataset.screenPanel!==screen;
     for(const tab of document.querySelectorAll('.tab-item')){if(tab.dataset.screen===screen)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current')}
+    onScreen(screen);
     const panel=$('screen-'+screen),destination=target?$(target):panel;
     if(destination?.tagName==='DETAILS')destination.open=true;
     window.scrollTo({top:0,behavior:'instant'});
@@ -47,5 +48,5 @@ export function mountNavigation(){
   });
   for(const node of document.querySelectorAll('[data-icon]'))node.innerHTML=icon(node.dataset.icon);
   showScreen('overview',{focus:false});
-  return {showScreen,goBack(){if(current==='overview')return false;showScreen('overview');return true},getScreen:()=>current};
+  return {showScreen,goBack(){if(current==='dish'&&onBack())return true;if(current==='overview')return false;showScreen('overview');return true},getScreen:()=>current};
 }
