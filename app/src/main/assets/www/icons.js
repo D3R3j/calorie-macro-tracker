@@ -1,4 +1,7 @@
 const paths={
+  mark:'<path d="M3 12h18a9 9 0 0 1-18 0Zm4 8h10M8 8l2-3 3 2 3-4"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  transfer:'<path d="M4 8h15m-4-4 4 4-4 4M20 16H5m4-4-4 4 4 4"/>',
   menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
   close:'<path d="m6 6 12 12M18 6 6 18"/>',
   overview:'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',

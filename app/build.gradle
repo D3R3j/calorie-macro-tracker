@@ -7,8 +7,8 @@ android {
         applicationId 'ru.domashniy.balance'
         minSdk 26
         targetSdk 35
-        versionCode Integer.parseInt(providers.gradleProperty('appVersionCode').getOrElse('5'))
-        versionName providers.gradleProperty('appVersionName').getOrElse('1.1.0')
+        versionCode Integer.parseInt(providers.gradleProperty('appVersionCode').getOrElse('6'))
+        versionName providers.gradleProperty('appVersionName').getOrElse('1.2.0')
         buildConfigField 'String', 'UPDATE_REPO', '"D3R3j/calorie-macro-tracker"'
     }
     buildFeatures { buildConfig true }

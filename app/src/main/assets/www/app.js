@@ -1,6 +1,5 @@
 import {foods,defaults,estimate,totals} from './model.js';
-import {calorieNeeds,validNeedsProfile} from './needs.js';
-import {validMealPlans} from './meal-plan.js';
+import {calorieNeeds} from './needs.js';
 import {mountMeals} from './meals-ui.js';
 import {icon} from './icons.js';
 import {mountNavigation} from './navigation.js';
@@ -14,23 +13,132 @@ $('closeWelcome').onclick=$('startWelcome').onclick=()=>welcome.close();$('helpB
 let showWelcome=true;try{showWelcome=localStorage.getItem('home-balance-welcome-seen')!=='1'}catch{}
 if(showWelcome)welcome.showModal();
 const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
-let state={version:1,goals:{...defaults},entries:[]},items=[{id:0,rank:3},{id:8,rank:6},{id:16,rank:1}],last=null;
+let state={version:1,goals:{...defaults},entries:[]},items=[],last=null;
 const valid=validState;
 try{const saved=localStorage.getItem('home-balance-v1');if(saved){const parsed=JSON.parse(saved);if(!valid(parsed))throw Error();state=parsed}}catch{$('status').textContent='Не удалось прочитать сохранённые данные. Импортируйте резервную копию.'}
 function persist(){try{localStorage.setItem('home-balance-v1',JSON.stringify(state));$('status').textContent=''}catch{$('status').textContent='Не удалось сохранить данные. Экспортируйте копию, прежде чем закрывать страницу.'}}
 $('date').value=today();$('food').innerHTML=foods.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
-function invalidate(){last=null;$('result').innerHTML='<div class="empty"><span>◌</span><h3>Расчёт ждёт обновления</h3><p>Нажмите «Рассчитать мою порцию».</p></div>'}
-function renderItems(){$('ingredients').innerHTML=items.map((i,n)=>`<div class="ingredient"><span>${foods[i.id].name}</span><select aria-label="Доля ${foods[i.id].name}" data-rank="${n}">${[[1,'Немного'],[3,'Много'],[6,'Основа']].map(([v,t])=>`<option value="${v}" ${v===i.rank?'selected':''}>${t}</option>`).join('')}</select><button type="button" data-remove="${n}" aria-label="Удалить ${foods[i.id].name}">×</button></div>`).join('')}
+function invalidate(){
+  last=null;
+  $('result').innerHTML='<p class="empty">Рассчитайте порцию, чтобы увидеть калории, БЖУ и диапазон оценки.</p>';
+}
+function renderItems(){
+  $('ingredients').innerHTML = items.length ? items.map((i,n)=>`<div class="ingredient"><span>${foods[i.id].name}</span><select aria-label="Доля ${foods[i.id].name}" data-rank="${n}">${[[1,'Немного'],[3,'Много'],[6,'Основа']].map(([v,t])=>`<option value="${v}" ${v===i.rank?'selected':''}>${t}</option>`).join('')}</select><button type="button" data-remove="${n}" aria-label="Удалить ${foods[i.id].name}">×</button></div>`).join('') : '<p class="ingredient-empty">Ингредиенты пока не добавлены.</p>';
+}
 $('addFood').onclick=()=>{const id=+$('food').value;if(items.some(i=>i.id===id))return;items.push({id,rank:1});renderItems();invalidate()};
 $('ingredients').onchange=e=>{if(e.target.dataset.rank!==undefined){items[+e.target.dataset.rank].rank=+e.target.value;invalidate()}};
 $('ingredients').onclick=e=>{if(e.target.dataset.remove!==undefined){items.splice(+e.target.dataset.remove,1);renderItems();invalidate()}};
 $('dishForm').oninput=invalidate;$('oil').onchange=()=>{$('oilLabel').hidden=$('oil').value!=='known';invalidate()};
-$('dishForm').onsubmit=e=>{e.preventDefault();$('error').textContent='';try{const input={weight:+$('weight').value,portion:+$('portion').value,items:structuredClone(items),method:$('method').value,oil:$('oil').value,oilGrams:+$('oilGrams').value,water:+$('water').value};const result=estimate(input);last={id:crypto.randomUUID(),name:$('name').value.trim()||'Домашнее блюдо',date:$('date').value||today(),portion:input.portion,result,input};const k=result.k;const delta=Math.max(k.mid-k.low,k.high-k.mid);$('result').innerHTML=`<div class="result-main"><span class="eyebrow">${esc(last.name)} · ${fmt(input.portion)} г</span><div class="big">${fmt(k.mid)} <small>ккал</small></div><div class="range">${fmt(k.low)}–${fmt(k.high)} ккал</div><p>Модельный разброс до ±${fmt(delta)} ккал${k.mid>0?` (≈${fmt(delta/k.mid*100)}%)`:''}</p></div><div class="macro-result">${keys.slice(1).map(key=>`<div><span>${labels[key]}</span><strong>${fmt(result[key].mid)} г</strong><small>${fmt(result[key].low)}–${fmt(result[key].high)} г</small></div>`).join('')}</div><div class="notice">↗ Пропорции неизвестны. Реальное значение может выходить за диапазон. Чем точнее состав и масло, тем полезнее ориентир.</div><p class="hint">На 100 г: около ${fmt(k.mid/input.portion*100)} ккал. Вся кастрюля: около ${fmt(k.mid/input.portion*input.weight)} ккал.</p><label>Приём пищи<select id="meal">${mealUI.options()}</select></label><button type="button" id="saveEntry" class="primary">+ Добавить в дневник</button>`;$('saveEntry').onclick=()=>{if(!last)return;state.entries.push({...last,date:$('date').value||today(),meal:$('meal').value});persist();renderDay();last=null;$('saveEntry').disabled=true;$('saveEntry').textContent='✓ Порция добавлена';navigation.showScreen('diary')};}catch(err){$('error').textContent=err.message}};
+$('dishForm').onsubmit = (event) => {
+  event.preventDefault();
+  $('error').textContent = '';
+
+  try {
+    const input = {
+      weight: Number($('weight').value),
+      portion: Number($('portion').value),
+      items: structuredClone(items),
+      method: $('method').value,
+      oil: $('oil').value,
+      oilGrams: Number($('oilGrams').value),
+      water: Number($('water').value),
+    };
+    const result = estimate(input);
+    last = {
+      id: crypto.randomUUID(),
+      name: $('name').value.trim() || 'Домашнее блюдо',
+      date: $('date').value || today(),
+      portion: input.portion,
+      result,
+      input,
+    };
+
+    const energy = result.k;
+    const delta = Math.max(energy.mid - energy.low, energy.high - energy.mid);
+    const spread = fmt(delta) === '0'
+      ? 'Разброс модели меньше 1 ккал'
+      : `Разброс модели до ±${fmt(delta)} ккал`;
+    const macros = keys.slice(1).map((key) => {
+      const { low, mid, high } = result[key];
+      return `<div>
+        <span>${labels[key]}</span>
+        <strong>${fmt(mid)} г</strong>
+        ${fmt(low) === fmt(high) ? '' : `<small>${fmt(low)}–${fmt(high)} г</small>`}
+      </div>`;
+    }).join('');
+
+    $('result').innerHTML = `
+      <div class="result-main">
+        <span class="result-dish">${esc(last.name)} · ${fmt(input.portion)} г</span>
+        <div class="big">≈ ${fmt(energy.mid)} <small>ккал</small></div>
+        ${fmt(energy.low) === fmt(energy.high) ? '' : `<div class="range">Диапазон ${fmt(energy.low)}–${fmt(energy.high)} ккал</div>`}
+        <p>${spread}</p>
+      </div>
+      <div class="macro-result">${macros}</div>
+      <p class="notice">Это оценка по составу. Реальное значение может отличаться.</p>
+      <p class="hint">На 100 г: около ${fmt(energy.mid / input.portion * 100)} ккал. Всё блюдо: около ${fmt(energy.mid / input.portion * input.weight)} ккал.</p>
+      <label>Приём пищи<select id="meal">${mealUI.options()}</select></label>
+      <button type="button" id="saveEntry" class="primary">Добавить в дневник</button>`;
+
+    $('saveEntry').onclick = () => {
+      if (!last) return;
+      state.entries.push({ ...last, date: $('date').value || today(), meal: $('meal').value });
+      persist();
+      renderDay();
+      last = null;
+      $('saveEntry').disabled = true;
+      $('saveEntry').textContent = 'Порция добавлена';
+      navigation.showScreen('diary');
+    };
+
+    const resultPanel = $('result').closest('.result-card');
+    resultPanel.focus({ preventScroll: true });
+    if (matchMedia('(max-width: 759px)').matches) resultPanel.scrollIntoView({ block: 'start' });
+  } catch (error) {
+    $('error').textContent = error.message;
+  }
+};
+function renderBudget(consumed, goals, hasEntries) {
+  const remaining = goals.k - consumed.k.mid;
+  const fraction = consumed.k.mid / goals.k;
+  const consumedPercent = Math.min(100, fraction * 100);
+  let band = 'target';
+  if (fraction < 0.4) band = 'low';
+  else if (fraction < 0.8) band = 'mid';
+  else if (fraction > 1.1) band = 'over';
+  const progress = fraction.toLocaleString('ru-RU', { style: 'percent', maximumFractionDigits: 1 });
+  const macros = keys.slice(1).map((key) => {
+    const left = goals[key] - consumed[key].mid;
+    const percent = Math.min(100, consumed[key].mid / goals[key] * 100);
+    const low = fmt(goals[key] - consumed[key].high);
+    const high = fmt(goals[key] - consumed[key].low);
+    return `<div class="macro-cell ${key}">
+      <span class="macro-name">${icon(({p:'protein', f:'fat', c:'carbs'})[key])}${labels[key]}</span>
+      <div class="macro-value"><strong>${fmt(consumed[key].mid)}</strong><span> / ${fmt(goals[key])} г</span></div>
+      <div class="macro-track" aria-hidden="true"><i style="width:${percent}%"></i></div>
+      <small>${left >= 0 ? 'Осталось' : 'Сверх'} ${fmt(Math.abs(left))} г</small>
+      ${low === high ? '' : `<small class="macro-range">Оценка остатка ${low}…${high} г</small>`}
+    </div>`;
+  }).join('');
+  const low = fmt(goals.k - consumed.k.high);
+  const high = fmt(goals.k - consumed.k.low);
+  const range = low === high ? low : `${low}…${high}`;
+  $('budget').innerHTML = `
+    <article class="energy-card" data-band="${band}">
+      <div class="energy-heading"><span>${icon('flame')} Калории</span><span>${progress} дневной цели</span></div>
+      <p class="energy-label">${remaining >= 0 ? 'Осталось' : 'Сверх цели'}</p>
+      <p class="energy-number">${fmt(Math.abs(remaining))} <small>ккал</small></p>
+      <div class="energy-scale" aria-hidden="true"><i style="width:${consumedPercent}%"></i></div>
+      <div class="energy-caption"><span>Съедено ${hasEntries ? '≈ ' : ''}<b>${fmt(consumed.k.mid)}</b></span><span>Цель <b>${fmt(goals.k)} ккал</b></span></div>
+      ${hasEntries ? `<p class="energy-range">Оценка остатка: ${range} ккал</p>` : ''}
+    </article>
+    <section class="macro-panel" aria-label="Белки, жиры и углеводы">${macros}</section>`;
+}
 function renderDay(){
   if(!$('date').value)$('date').value=today();$('diaryDate').value=$('date').value;
   $('pageDate').textContent=new Date($('date').value+'T12:00:00').toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
   const entries=state.entries.filter(e=>e.date===$('date').value),t=totals(entries);
-  $('budget').innerHTML=keys.map(k=>{const left=state.goals[k]-t[k].mid;return `<article class="budget ${k}"><div class="budget-label"><span class="budget-icon">${icon(({k:"flame",p:"protein",f:"fat",c:"carbs"})[k])}</span><span>${labels[k]}</span></div><div class="budget-value">${fmt(t[k].mid)} <small>/ ${fmt(state.goals[k])} ${unit(k)}</small></div><div class="track"><i style="width:${Math.min(100,t[k].mid/state.goals[k]*100)}%"></i></div><p class="budget-remainder">${left>=0?'Осталось':'Сверх цели'} <b>${fmt(Math.abs(left))} ${unit(k)}</b></p><small>Остаток: ${fmt(state.goals[k]-t[k].high)}…${fmt(state.goals[k]-t[k].low)} ${unit(k)}</small></article>`}).join('');
+  renderBudget(t,state.goals,entries.length>0);
   $('entryCount').textContent=entries.length+' '+({one:'запись',few:'записи',many:'записей',other:'записи'}[new Intl.PluralRules('ru').select(entries.length)]);
   $('diaryTotal').innerHTML='<span>За выбранный день</span><strong>≈ '+fmt(t.k.mid)+' <small>ккал</small></strong><p>'+fmt(t.k.low)+'–'+fmt(t.k.high)+' ккал · Б '+fmt(t.p.mid)+' / Ж '+fmt(t.f.mid)+' / У '+fmt(t.c.mid)+'</p>';
   const groups=[...new Set(entries.map(e=>e.meal||'Приём пищи'))];
@@ -56,7 +164,7 @@ $('import').addEventListener('click',e=>{if(window.AndroidFiles?.importJson){e.p
 $('import').onchange=async e=>{try{const file=e.target.files[0];if(file)await importData(await file.text())}finally{e.target.value=''}};
 
 let needsResult=null;
-function clearNeedsResult(){needsResult=null;$('needsResult').hidden=true;$('needsError').textContent=''}
+function clearNeedsResult(){needsResult=null;$('needsResult').hidden=true;$('needsPlaceholder').hidden=false;$('needsError').textContent=''}
 function restoreNeedsProfile(){const p=state.needsProfile;for(const key of ['height','weight','age','sex','activity'])$('needs-'+key).value=p?.[key]??'';clearNeedsResult()}
 restoreNeedsProfile();
 $('needsForm').addEventListener('input',clearNeedsResult);
@@ -67,7 +175,7 @@ $('needsForm').onsubmit=e=>{e.preventDefault();clearNeedsResult();try{
   $('needsResting').textContent=fmt(needsResult.resting)+' ккал';
   $('needsDaily').textContent=fmt(needsResult.rounded)+' ккал / день';
   $('needsApply').disabled=false;$('needsApply').textContent='Применить к дневной цели';
-  $('needsResult').hidden=false;
+  $('needsResult').hidden=false;$('needsPlaceholder').hidden=true;
 }catch(err){$('needsError').textContent=err.message}};
 $('needsApply').onclick=()=>{if(!needsResult)return;state.goals.k=needsResult.rounded;persist();renderDay();$('needsApply').disabled=true;$('needsApply').textContent='✓ Цель по калориям обновлена'};
 const mealUI=mountMeals({getState:()=>state,persist,refresh:renderDay,fmt,esc});
