@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Balance.Dialog.Light" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#a62451</item>
+        <item name="android:colorBackgroundFloating">#ffffff</item>
+        <item name="android:textColorPrimary">#191a20</item>
+        <item name="android:textColorSecondary">#595c68</item>
+    </style>
+    <style name="Balance.Dialog.Dark" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#ffaac5</item>
+        <item name="android:colorBackgroundFloating">#1b1d23</item>
+        <item name="android:textColorPrimary">#f3f3f7</item>
+        <item name="android:textColorSecondary">#b6b8c5</item>
+    </style>
+</resources>

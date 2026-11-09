@@ -69,7 +69,10 @@ public class MainActivity extends Activity {
         else if(System.currentTimeMillis()-getPreferences(0).getLong("lastCheck",0)>86400000L)checkUpdates(false);
     }
 
-    private AlertDialog.Builder newAlert(){return new AlertDialog.Builder(new ContextThemeWrapper(this,getPreferences(0).getBoolean("darkMode",false)?android.R.style.Theme_Material_Dialog_Alert:android.R.style.Theme_Material_Light_Dialog_Alert));}
+    private AlertDialog.Builder newAlert() {
+        boolean dark = getPreferences(0).getBoolean("darkMode", false);
+        return new AlertDialog.Builder(this, dark ? R.style.Balance_Dialog_Dark : R.style.Balance_Dialog_Light);
+    }
     private void message(String text){if(!isFinishing()&&!isDestroyed())newAlert().setTitle("Обновления").setMessage(text).setPositiveButton("Понятно",null).show();}
     private void checkUpdates(boolean manual){
         if(pendingApk!=null){if(manual){deferInstall=false;offerInstall();}return;}

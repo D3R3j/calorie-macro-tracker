@@ -35,6 +35,7 @@ export function mountNavigation(){
     if(action==='import'){$('import').click();return}
     requestAnimationFrame(()=>{
       if(action==='goals')$('goalBtn').click();
+      if(action==='recipe-settings')$('recipeSettings').showModal();
       if(action==='theme')$('themeToggle').click();
       if(action==='help')$('helpBtn').click();
       if(action==='about')showAbout();

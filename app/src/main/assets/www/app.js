@@ -4,6 +4,8 @@ import {mountMeals} from './meals-ui.js';
 import {icon} from './icons.js';
 import {mountNavigation} from './navigation.js';
 import {validState,resizeEntry} from './data.js';
+import {mountIngredientRows,hasEditableIngredients} from './ingredients-ui.js';
+import {mountPickers} from './pickers.js';
 const $=id=>document.getElementById(id),keys=['k','p','f','c'],labels={k:'Калории',p:'Белки',f:'Жиры',c:'Углеводы'},unit=k=>k==='k'?'ккал':'г',fmt=n=>Math.round(Number(n.toFixed(8))).toLocaleString('ru-RU'),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function renderTheme(){const dark=document.documentElement.dataset.theme==='dark';$('themeToggle').innerHTML=icon(dark?'sun':'moon');$('themeToggle').setAttribute('aria-pressed',String(dark));$('themeToggle').setAttribute('aria-label',dark?'Включить светлую тему':'Включить тёмную тему');$('themeToggle').title=dark?'Светлая тема':'Тёмная тема';$('menuThemeText').textContent=dark?'Светлая тема':'Тёмная тема';$('menuThemeIcon').innerHTML=icon(dark?'sun':'moon');document.querySelector('meta[name="theme-color"]').content=dark?'#000000':'#f2f2f7';try{window.AndroidFiles?.setDarkMode?.(dark)}catch{}}
 $('themeToggle').onclick=()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=theme;try{localStorage.setItem('home-balance-theme',theme)}catch{$('status').textContent='Выбор темы действует до закрытия страницы: сохранение в браузере недоступно.'}renderTheme()};renderTheme();
@@ -13,21 +15,43 @@ $('closeWelcome').onclick=$('startWelcome').onclick=()=>welcome.close();$('helpB
 let showWelcome=true;try{showWelcome=localStorage.getItem('home-balance-welcome-seen')!=='1'}catch{}
 if(showWelcome)welcome.showModal();
 const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
-let state={version:1,goals:{...defaults},entries:[]},items=[],last=null;
+let state={version:1,goals:{...defaults},entries:[]},last=null;
+let syncPickers = () => {};
 const valid=validState;
 try{const saved=localStorage.getItem('home-balance-v1');if(saved){const parsed=JSON.parse(saved);if(!valid(parsed))throw Error();state=parsed}}catch{$('status').textContent='Не удалось прочитать сохранённые данные. Импортируйте резервную копию.'}
 function persist(){try{localStorage.setItem('home-balance-v1',JSON.stringify(state));$('status').textContent=''}catch{$('status').textContent='Не удалось сохранить данные. Экспортируйте копию, прежде чем закрывать страницу.'}}
 $('date').value=today();$('food').innerHTML=foods.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
 function invalidate(){
   last=null;
+  $('error').textContent='';
   $('result').innerHTML='<p class="empty">Рассчитайте порцию, чтобы увидеть калории, БЖУ и диапазон оценки.</p>';
 }
-function renderItems(){
-  $('ingredients').innerHTML = items.length ? items.map((i,n)=>`<div class="ingredient"><span>${foods[i.id].name}</span><select aria-label="Доля ${foods[i.id].name}" data-rank="${n}">${[[1,'Немного'],[3,'Много'],[6,'Основа']].map(([v,t])=>`<option value="${v}" ${v===i.rank?'selected':''}>${t}</option>`).join('')}</select><button type="button" data-remove="${n}" aria-label="Удалить ${foods[i.id].name}">×</button></div>`).join('') : '<p class="ingredient-empty">Ингредиенты пока не добавлены.</p>';
+const gramSetting = $('allowIngredientGrams');
+const allowGrams = () => gramSetting.checked;
+try { gramSetting.checked = localStorage.getItem('home-balance-ingredient-grams') === '1'; } catch {}
+let recipeEdited = false;
+const dishIngredients = mountIngredientRows($('ingredients'), {allowGrams, onChange: invalidate});
+const entryIngredients = mountIngredientRows($('entryIngredients'), {
+  allowGrams,
+  removable: false,
+  onChange: () => { recipeEdited = true; $('entryError').textContent = ''; },
+});
+$('entryIngredients').addEventListener('invalid', () => { $('entryRecipe').open = true; }, true);
+function renderIngredientSetting() {
+  $('recipeInputHelp').textContent = allowGrams()
+    ? 'Для каждого продукта выберите долю, граммы или штуки, если они доступны.'
+    : 'Для некоторых продуктов можно указать штуки. Граммы включаются в настройках.';
 }
-$('addFood').onclick=()=>{const id=+$('food').value;if(items.some(i=>i.id===id))return;items.push({id,rank:1});renderItems();invalidate()};
-$('ingredients').onchange=e=>{if(e.target.dataset.rank!==undefined){items[+e.target.dataset.rank].rank=+e.target.value;invalidate()}};
-$('ingredients').onclick=e=>{if(e.target.dataset.remove!==undefined){items.splice(+e.target.dataset.remove,1);renderItems();invalidate()}};
+renderIngredientSetting();
+gramSetting.onchange = () => {
+  try { localStorage.setItem('home-balance-ingredient-grams', gramSetting.checked ? '1' : '0'); }
+  catch { $('status').textContent = 'Выбор способа ввода сохранится до закрытия приложения.'; }
+  dishIngredients.render();
+  entryIngredients.render();
+  renderIngredientSetting();
+};
+$('recipeSettingsClose').onclick = () => $('recipeSettings').close();
+$('addFood').onclick = () => dishIngredients.add(Number($('food').value));
 $('dishForm').oninput=invalidate;$('oil').onchange=()=>{$('oilLabel').hidden=$('oil').value!=='known';invalidate()};
 $('dishForm').onsubmit = (event) => {
   event.preventDefault();
@@ -37,7 +61,7 @@ $('dishForm').onsubmit = (event) => {
     const input = {
       weight: Number($('weight').value),
       portion: Number($('portion').value),
-      items: structuredClone(items),
+      items: dishIngredients.getItems(),
       method: $('method').value,
       oil: $('oil').value,
       oilGrams: Number($('oilGrams').value),
@@ -93,7 +117,7 @@ $('dishForm').onsubmit = (event) => {
 
     const resultPanel = $('result').closest('.result-card');
     resultPanel.focus({ preventScroll: true });
-    if (matchMedia('(max-width: 759px)').matches) resultPanel.scrollIntoView({ block: 'start' });
+    resultPanel.scrollIntoView({ block: 'nearest' });
   } catch (error) {
     $('error').textContent = error.message;
   }
@@ -144,14 +168,57 @@ function renderDay(){
   const groups=[...new Set(entries.map(e=>e.meal||'Приём пищи'))];
   $('entries').innerHTML=entries.length?groups.map(meal=>'<div class="diary-group"><h3>'+esc(meal)+'</h3>'+entries.filter(e=>(e.meal||'Приём пищи')===meal).map(e=>'<article class="entry"><div class="entry-name"><strong>'+esc(e.name)+'</strong><small>'+fmt(e.portion)+' г · '+fmt(e.result.k.low)+'–'+fmt(e.result.k.high)+' ккал</small></div><div><strong>≈ '+fmt(e.result.k.mid)+' ккал</strong><small>Б '+fmt(e.result.p.mid)+' / Ж '+fmt(e.result.f.mid)+' / У '+fmt(e.result.c.mid)+'</small></div><div class="entry-actions"><button type="button" data-edit="'+esc(e.id)+'" aria-label="Изменить '+esc(e.name)+'">Изменить</button><button type="button" data-delete="'+esc(e.id)+'" aria-label="Удалить '+esc(e.name)+'">×</button></div></article>').join('')+'</div>').join(''):'<div class="empty-diary"><p>На этот день ещё нет записей.</p><button type="button" class="quiet" data-open-screen="dish">Рассчитать и добавить порцию</button></div>';
   mealUI.render();
+  syncPickers();
 }
 let pendingDeletion=null,deleteTimer=null,editingId=null;
-function openEntry(id){const e=state.entries.find(e=>e.id===id);if(!e)return;editingId=id;$('entryName').value=e.name;$('entryPortion').value=e.portion;$('entryPortion').max=e.input?.weight??100000;$('entryMeal').innerHTML=mealUI.options(e.meal||'Приём пищи');if(![...$('entryMeal').options].some(o=>o.value===e.meal))$('entryMeal').add(new Option(e.meal||'Приём пищи',e.meal||'Приём пищи',true,true));$('entryError').textContent='';$('entryDialog').showModal()}
+function openEntry(id) {
+  const entry = state.entries.find(item => item.id === id);
+  if (!entry) return;
+  editingId = id;
+  $('entryName').value = entry.name;
+  $('entryPortion').value = entry.portion;
+  $('entryPortion').max = entry.input?.weight ?? 100000;
+  const meal = entry.meal || 'Приём пищи';
+  $('entryMeal').innerHTML = mealUI.options(meal);
+  if (!$('entryMeal').value || ![...$('entryMeal').options].some(option => option.value === meal)) {
+    $('entryMeal').add(new Option(meal, meal, true, true));
+  }
+  const editable = hasEditableIngredients(entry.input);
+  $('entryRecipe').hidden = !editable;
+  $('entryRecipe').open = false;
+  $('entryRecipeMass').textContent = editable ? 'Готовое блюдо: ' + entry.input.weight + ' г' : '';
+  entryIngredients.setItems(editable ? entry.input.items : []);
+  recipeEdited = false;
+  $('entryError').textContent = '';
+  syncPickers();
+  $('entryDialog').showModal();
+}
 $('date').onchange=renderDay;$('diaryDate').onchange=()=>{$('date').value=$('diaryDate').value||today();renderDay()};
 $('entries').onclick=e=>{const edit=e.target.closest('[data-edit]'),remove=e.target.closest('[data-delete]');if(edit){openEntry(edit.dataset.edit);return}if(remove){const index=state.entries.findIndex(x=>x.id===remove.dataset.delete);if(index<0)return;pendingDeletion={entry:state.entries[index],index};state.entries.splice(index,1);persist();renderDay();$('snackbarText').textContent='Запись удалена';$('snackbar').hidden=false;clearTimeout(deleteTimer);deleteTimer=setTimeout(()=>{pendingDeletion=null;$('snackbar').hidden=true},15000)}};
 $('undoDelete').onclick=()=>{if(!pendingDeletion)return;state.entries.splice(Math.min(pendingDeletion.index,state.entries.length),0,pendingDeletion.entry);pendingDeletion=null;clearTimeout(deleteTimer);$('snackbar').hidden=true;persist();renderDay()};
 $('cancelEntry').onclick=()=>$('entryDialog').close();
-$('entryForm').onsubmit=e=>{e.preventDefault();try{const index=state.entries.findIndex(e=>e.id===editingId);if(index<0)throw Error('Запись больше не существует.');state.entries[index]=resizeEntry(state.entries[index],{name:$('entryName').value,portion:+$('entryPortion').value,meal:$('entryMeal').value});persist();renderDay();$('entryDialog').close()}catch(err){$('entryError').textContent=err.message}};
+$('entryForm').onsubmit = event => {
+  event.preventDefault();
+  try {
+    const index = state.entries.findIndex(entry => entry.id === editingId);
+    if (index < 0) throw Error('Запись больше не существует.');
+    const entry = resizeEntry(state.entries[index], {
+      name: $('entryName').value,
+      portion: Number($('entryPortion').value),
+      meal: $('entryMeal').value,
+    });
+    if (recipeEdited) {
+      entry.input.items = entryIngredients.getItems();
+      entry.result = estimate(entry.input);
+    }
+    state.entries[index] = entry;
+    persist();
+    renderDay();
+    $('entryDialog').close();
+  } catch (error) {
+    $('entryError').textContent = error.message;
+  }
+};
 
 $('goalBtn').onclick=()=>{$('goalFields').innerHTML=keys.map(k=>`<label>${labels[k]}, ${unit(k)}<input name="${k}" type="number" min="1" max="100000" required value="${state.goals[k]}"></label>`).join('');$('goals').showModal()};$('cancelGoals').onclick=()=>$('goals').close();$('goalsForm').onsubmit=e=>{e.preventDefault();const data=new FormData(e.target);for(const k of keys)state.goals[k]=+data.get(k);persist();renderDay();$('goals').close()};
 $('export').onclick=()=>{const json=JSON.stringify(state,null,2);if(window.AndroidFiles?.exportJson){window.AndroidFiles.exportJson(json);return}const url=URL.createObjectURL(new Blob([json],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='domashniy-balans-'+today()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
@@ -165,7 +232,7 @@ $('import').onchange=async e=>{try{const file=e.target.files[0];if(file)await im
 
 let needsResult=null;
 function clearNeedsResult(){needsResult=null;$('needsResult').hidden=true;$('needsPlaceholder').hidden=false;$('needsError').textContent=''}
-function restoreNeedsProfile(){const p=state.needsProfile;for(const key of ['height','weight','age','sex','activity'])$('needs-'+key).value=p?.[key]??'';clearNeedsResult()}
+function restoreNeedsProfile(){const p=state.needsProfile;for(const key of ['height','weight','age','sex','activity'])$('needs-'+key).value=p?.[key]??'';clearNeedsResult();syncPickers()}
 restoreNeedsProfile();
 $('needsForm').addEventListener('input',clearNeedsResult);
 $('needsForm').addEventListener('change',clearNeedsResult);
@@ -179,6 +246,6 @@ $('needsForm').onsubmit=e=>{e.preventDefault();clearNeedsResult();try{
 }catch(err){$('needsError').textContent=err.message}};
 $('needsApply').onclick=()=>{if(!needsResult)return;state.goals.k=needsResult.rounded;persist();renderDay();$('needsApply').disabled=true;$('needsApply').textContent='✓ Цель по калориям обновлена'};
 const mealUI=mountMeals({getState:()=>state,persist,refresh:renderDay,fmt,esc});
-const navigation=mountNavigation();window.BalanceApp={...navigation,importData};renderItems();renderDay();try{window.AndroidFiles?.pageReady?.()}catch{}
+const navigation=mountNavigation();window.BalanceApp={...navigation,importData};syncPickers=mountPickers();renderDay();try{window.AndroidFiles?.pageReady?.()}catch{}
 
 
