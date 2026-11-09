@@ -150,6 +150,7 @@ $('recipeTypes').onclick = event => {
     $('oilLabel').hidden = true;
     syncPickers();
   }
+  invalidate();
   showRecipeStep(1);
   $('name').focus();
 };

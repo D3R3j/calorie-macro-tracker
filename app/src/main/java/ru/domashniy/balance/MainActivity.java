@@ -25,6 +25,8 @@ public class MainActivity extends Activity {
     private WebView web;
     private LinearLayout appLayout;
     private File pendingApk;
+    private AlertDialog updatePrompt;
+    private boolean started, restoringUpdate;
     private boolean checking=false,downloading=false,pageIsReady=false,importInFlight=false,installPromptOpen=false,deferInstall=false;
 
     @Override public void onCreate(Bundle state) {
@@ -65,8 +67,21 @@ public class MainActivity extends Activity {
         applyTheme(getPreferences(0).getBoolean("darkMode",false));
         web.loadUrl(ORIGIN+"/assets/www/index.html");
         File update=new File(new File(getCacheDir(),"updates"),"update.apk");
-        if(update.exists())worker.execute(()->{try{verifyApk(update);runOnUiThread(()->{pendingApk=update;offerInstall();});}catch(Exception ex){update.delete();}});
-        else if(System.currentTimeMillis()-getPreferences(0).getLong("lastCheck",0)>86400000L)checkUpdates(false);
+        if(update.exists()){
+            restoringUpdate=true;
+            worker.execute(()->{
+                File verified=update;
+                try{verifyApk(update);}catch(Exception ex){update.delete();verified=null;}
+                File result=verified;
+                runOnUiThread(()->{
+                    restoringUpdate=false;
+                    pendingApk=result;
+                    if(!started)return;
+                    if(pendingApk!=null)offerInstall();
+                    else checkUpdates(false);
+                });
+            });
+        }
     }
 
     private AlertDialog.Builder newAlert() {
@@ -75,6 +90,7 @@ public class MainActivity extends Activity {
     }
     private void message(String text){if(!isFinishing()&&!isDestroyed())newAlert().setTitle("Обновления").setMessage(text).setPositiveButton("Понятно",null).show();}
     private void checkUpdates(boolean manual){
+        if(!started||restoringUpdate||updatePrompt!=null)return;
         if(pendingApk!=null){if(manual){deferInstall=false;offerInstall();}return;}
         if(downloading){if(manual)Toast.makeText(this,"Обновление уже загружается…",Toast.LENGTH_SHORT).show();return;}
         if(checking){if(manual)Toast.makeText(this,"Проверка уже выполняется…",Toast.LENGTH_SHORT).show();return;}checking=true;
@@ -86,14 +102,24 @@ public class MainActivity extends Activity {
             for(int n=0;n<assets.length();n++){JSONObject a=assets.getJSONObject(n);if(a.getString("name").equals("calorie-macro-tracker.apk"))apk=a;}
             if(apk==null)throw new IOException("В последнем релизе нет APK приложения.");
             String tag=release.getString("tag_name");
-            if(!Version.isNewer(tag,BuildConfig.VERSION_NAME)){runOnUiThread(()->{if(manual)message("Установлена последняя версия: "+BuildConfig.VERSION_NAME);});}
+            if(!Version.isNewer(tag,BuildConfig.VERSION_NAME)){runOnUiThread(()->{if(manual&&started)message("Установлена последняя версия: "+BuildConfig.VERSION_NAME);});}
             else {
                 String url=apk.getString("browser_download_url"),digest=apk.optString("digest","");long size=apk.getLong("size");
                 if(!url.startsWith("https://github.com/"+BuildConfig.UPDATE_REPO+"/releases/download/")||!digest.matches("sha256:[0-9a-fA-F]{64}")||size<=0||size>100000000)throw new IOException("Не удалось проверить сведения об APK. Обновление отменено.");
-                runOnUiThread(()->{if(!isFinishing()&&!isDestroyed())newAlert().setTitle("Доступна версия "+tag).setMessage("Установлена "+BuildConfig.VERSION_NAME+". Скачать обновление из "+BuildConfig.UPDATE_REPO+"? Дневник сохранится.").setNegativeButton("Позже",null).setPositiveButton("Скачать",(d,w)->download(url,digest,size)).show();});
+                runOnUiThread(()->showUpdatePrompt(tag,url,digest,size));
             }
-            getPreferences(0).edit().putLong("lastCheck",System.currentTimeMillis()).apply();
-        }catch(Exception ex){if(manual)runOnUiThread(()->message(ex.getMessage()==null?"Не удалось проверить обновления. Проверьте подключение к интернету.":ex.getMessage()));}finally{runOnUiThread(()->checking=false);}});
+        }catch(Exception ex){if(manual)runOnUiThread(()->{if(started)message(ex.getMessage()==null?"Не удалось проверить обновления. Проверьте подключение к интернету.":ex.getMessage());});}finally{runOnUiThread(()->checking=false);}});
+    }
+
+    private void showUpdatePrompt(String tag,String url,String digest,long size){
+        if(!started||isFinishing()||isDestroyed()||updatePrompt!=null)return;
+        updatePrompt=newAlert().setTitle("Доступна версия "+tag)
+            .setMessage("Скачайте обновление с GitHub. Дневник сохранится.")
+            .setNegativeButton("Позже",null)
+            .setPositiveButton("Обновить",(dialog,which)->download(url,digest,size))
+            .create();
+        updatePrompt.show();
+        updatePrompt.setOnDismissListener(dialog->{if(updatePrompt==dialog)updatePrompt=null;});
     }
 
     private HttpURLConnection open(String url)throws IOException{
@@ -119,14 +145,25 @@ public class MainActivity extends Activity {
         if(downloaded==null||!getPackageName().equals(downloaded.packageName)||downloaded.versionCode<=installed.versionCode||downloaded.signatures==null||!Arrays.equals(downloaded.signatures,installed.signatures))throw new IOException("Неподходящий пакет, версия или подпись приложения.");
     }
     private void offerInstall(){
-        if(isFinishing()||isDestroyed()||pendingApk==null||installPromptOpen||deferInstall)return;installPromptOpen=true;
+        if(!started||isFinishing()||isDestroyed()||pendingApk==null||installPromptOpen||deferInstall)return;installPromptOpen=true;
         newAlert().setTitle("Обновление загружено").setMessage("Android запросит подтверждение установки. Если потребуется, разрешите установку из этого приложения.").setNegativeButton("Позже",(d,w)->deferInstall=true).setPositiveButton("Установить",(d,w)->{
             if(!getPackageManager().canRequestPackageInstalls()){startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));return;}
             File apk=pendingApk;try{verifyApk(apk);}catch(Exception ex){pendingApk=null;apk.delete();message("APK больше не подходит для обновления.");return;}Intent i=new Intent(Intent.ACTION_VIEW).setDataAndType(FileProvider.getUriForFile(this,getPackageName()+".files",apk),"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             try{startActivity(i);}catch(ActivityNotFoundException ex){message("На устройстве недоступен установщик APK.");}
         }).setOnDismissListener(d->installPromptOpen=false).show();
     }
+    @Override protected void onStart(){
+        super.onStart();
+        started=true;
+        deferInstall=false;
+        checkUpdates(false);
+    }
     @Override protected void onResume(){super.onResume();if(pendingApk!=null)offerInstall();}
+    @Override protected void onStop(){
+        started=false;
+        if(updatePrompt!=null){updatePrompt.dismiss();updatePrompt=null;}
+        super.onStop();
+    }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(result!=RESULT_OK||data==null||data.getData()==null){if(request==10)new File(getFilesDir(),"pending-export.json").delete();return;}Uri uri=data.getData();
         worker.execute(()->{try{
             if(request==10){byte[] payload=readBounded(new FileInputStream(new File(getFilesDir(),"pending-export.json")),10000000);try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException("Не удалось открыть файл.");out.write(payload);}new File(getFilesDir(),"pending-export.json").delete();runOnUiThread(()->Toast.makeText(this,"Копия сохранена",Toast.LENGTH_SHORT).show());}
