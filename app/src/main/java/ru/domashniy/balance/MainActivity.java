@@ -32,7 +32,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         LinearLayout layout=new LinearLayout(this);appLayout=layout;layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setBackgroundColor(0xfff2f2f7);
+        layout.setBackgroundColor(0xfff4f2ef);
         layout.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
         web=new WebView(this);layout.addView(web,new LinearLayout.LayoutParams(-1,0,1));setContentView(layout);
         if(Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::handleBack);
@@ -177,7 +177,7 @@ public class MainActivity extends Activity {
     }
     private void applyTheme(boolean dark){
         getPreferences(0).edit().putBoolean("darkMode",dark).apply();
-        int background=dark?0xff000000:0xfff2f2f7;appLayout.setBackgroundColor(background);web.setBackgroundColor(background);
+        int background=dark?0xff191614:0xfff4f2ef;appLayout.setBackgroundColor(background);web.setBackgroundColor(background);
         getWindow().setStatusBarColor(background);getWindow().setNavigationBarColor(background);
         if(Build.VERSION.SDK_INT>=30){WindowInsetsController controller=getWindow().getInsetsController();if(controller!=null){int flags=WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;controller.setSystemBarsAppearance(dark?0:flags,flags);}}
         else getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);

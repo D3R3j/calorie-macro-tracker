@@ -8,7 +8,9 @@ import {mountIngredientRows,hasEditableIngredients} from './ingredients-ui.js';
 import {mountPickers} from './pickers.js';
 import {dishTypes,findFoods} from './recipes.js';
 const $=id=>document.getElementById(id),keys=['k','p','f','c'],labels={k:'Калории',p:'Белки',f:'Жиры',c:'Углеводы'},unit=k=>k==='k'?'ккал':'г',fmt=n=>Math.round(Number(n.toFixed(8))).toLocaleString('ru-RU'),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function renderTheme(){const dark=document.documentElement.dataset.theme==='dark';$('themeToggle').innerHTML=icon(dark?'sun':'moon');$('themeToggle').setAttribute('aria-pressed',String(dark));$('themeToggle').setAttribute('aria-label',dark?'Включить светлую тему':'Включить тёмную тему');$('themeToggle').title=dark?'Светлая тема':'Тёмная тема';$('menuThemeText').textContent=dark?'Светлая тема':'Тёмная тема';$('menuThemeIcon').innerHTML=icon(dark?'sun':'moon');document.querySelector('meta[name="theme-color"]').content=dark?'#000000':'#f2f2f7';try{window.AndroidFiles?.setDarkMode?.(dark)}catch{}}
+const formatGrams = new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 1}).format;
+const plural = new Intl.PluralRules('ru');
+function renderTheme(){const dark=document.documentElement.dataset.theme==='dark';$('themeToggle').innerHTML=icon(dark?'sun':'moon');$('themeToggle').setAttribute('aria-pressed',String(dark));$('themeToggle').setAttribute('aria-label',dark?'Включить светлую тему':'Включить тёмную тему');$('themeToggle').title=dark?'Светлая тема':'Тёмная тема';$('menuThemeText').textContent=dark?'Светлая тема':'Тёмная тема';$('menuThemeIcon').innerHTML=icon(dark?'sun':'moon');document.querySelector('meta[name="theme-color"]').content=dark?'#191614':'#f4f2ef';try{window.AndroidFiles?.setDarkMode?.(dark)}catch{}}
 $('themeToggle').onclick=()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=theme;try{localStorage.setItem('home-balance-theme',theme)}catch{$('status').textContent='Выбор темы действует до закрытия страницы: сохранение в браузере недоступно.'}renderTheme()};renderTheme();
 const welcome=$('welcome');
 welcome.addEventListener('close',()=>{try{localStorage.setItem('home-balance-welcome-seen','1')}catch{$('status').textContent='Браузер не разрешает сохранять настройки: знакомство может появиться снова.'}});
@@ -42,7 +44,7 @@ $('entryIngredients').addEventListener('invalid', () => { $('entryRecipe').open 
 function renderIngredientSetting() {
   $('recipeInputHelp').textContent = allowGrams()
     ? 'Для каждого продукта выберите долю, граммы или штуки, если они доступны.'
-    : 'Для некоторых продуктов можно указать штуки. Граммы включаются в настройках.';
+    : 'Для некоторых продуктов доступны штуки. Граммы можно включить в меню «Ввод ингредиентов».';
 }
 renderIngredientSetting();
 gramSetting.onchange = () => {
@@ -79,7 +81,7 @@ function renderRecipeList() {
   $('recipeList').innerHTML = visible.length ? visible.map(recipe => `
     <article class="recipe-card">
       <div><p class="hint">${typeName(recipe.type)}</p><h3>${esc(recipe.name)}</h3>
-      <p class="hint">${fmt(recipe.input.weight)} г · ≈ ${fmt(recipe.result.k.mid / recipe.input.weight * 100)} ккал на 100 г</p></div>
+      <p class="hint">${formatGrams(recipe.input.weight)} г · ≈ ${fmt(recipe.result.k.mid / recipe.input.weight * 100)} ккал на 100 г</p></div>
       <div class="actions"><button type="button" class="primary" data-add-recipe="${esc(recipe.id)}">Записать порцию</button>
       <button type="button" class="quiet" aria-haspopup="dialog" data-edit-recipe="${esc(recipe.id)}">Изменить</button>
       <button type="button" class="quiet" data-delete-recipe="${esc(recipe.id)}">Удалить</button></div>
@@ -131,7 +133,7 @@ recipeDialog.addEventListener('cancel', event => {
 function renderSuggestions() {
   const query = $('foodSearch').value;
   const used = new Set(dishIngredients.getItems().map(item => item.id));
-  const matches = findFoods([...foods, ...(state.customFoods ?? [])], query, recipeType).filter(({food}) => !used.has(food.id));
+  const matches = findFoods([...foods, ...(state.customFoods ?? [])], query, recipeType, used);
   const groups = [...new Set(matches.map(item => item.category))];
   $('foodSuggestions').innerHTML = groups.map(category => `<section>
     <p class="hint">${esc(category)}</p>
@@ -181,12 +183,14 @@ $('customFoodCancel').onclick = () => $('customFoodDialog').close();
 $('customFoodForm').onsubmit = event => {
   event.preventDefault();
   const form = new FormData(event.target);
+  const calories = form.get('k');
   const food = {
     id: 'custom-' + crypto.randomUUID(), name: $('customFoodName').value.trim(),
+    ...(calories === '' ? {} : {k: Number(calories)}),
     p: Number(form.get('p')), f: Number(form.get('f')), c: Number(form.get('c')),
   };
   if (!validCustomFood(food)) {
-    $('customFoodError').textContent = 'Проверьте название и БЖУ. Сумма значений должна помещаться в 100 г продукта.';
+    $('customFoodError').textContent = 'Проверьте название и КБЖУ. Сумма белков, жиров и углеводов не должна превышать вес продукта.';
     return;
   }
   if ($('keepCustomFood').checked) {
@@ -247,6 +251,7 @@ $('recipePortionForm').onsubmit = event => {
     renderDay();
     $('recipePortionDialog').close();
     navigation.showScreen('diary');
+    if (entry.meal === 'Обед') mealUI.offerLunchAdjustment(entry.date);
   } catch (error) { $('recipePortionError').textContent = error.message; }
 };
 
@@ -282,7 +287,7 @@ recipeForm.onsubmit = event => {
       return `<div><span>${labels[key]}</span><strong>${fmt(band.mid)} г</strong>${fmt(band.low) === fmt(band.high) ? '' : `<small>${fmt(band.low)}–${fmt(band.high)} г</small>`}</div>`;
     }).join('');
     $('result').innerHTML = `
-      <div class="result-main"><span>Всё блюдо · ${fmt(weight)} г</span>
+      <div class="result-main"><span>Всё блюдо · ${formatGrams(weight)} г</span>
       <div class="big">≈ ${fmt(energy.mid)} <small>ккал</small></div>
       <p>${fmt(energy.low) === fmt(energy.high) ? 'Разброс модели меньше 1 ккал' : 'Диапазон ' + fmt(energy.low) + '–' + fmt(energy.high) + ' ккал'} · ≈ ${fmt(energy.mid / weight * 100)} ккал на 100 г</p></div>
       <div class="macro-result">${macros}</div>
@@ -316,11 +321,11 @@ function renderBudget(consumed, goals, hasEntries) {
     const low = fmt(goals[key] - consumed[key].high);
     const high = fmt(goals[key] - consumed[key].low);
     return `<div class="macro-cell ${key}">
-      <span class="macro-name">${icon(({p:'protein', f:'fat', c:'carbs'})[key])}${labels[key]}</span>
+      <span class="macro-name">${labels[key]}</span>
       <div class="macro-value"><strong>${fmt(consumed[key].mid)}</strong><span> / ${fmt(goals[key])} г</span></div>
       <div class="macro-track" aria-hidden="true"><i style="width:${percent}%"></i></div>
       <small>${left >= 0 ? 'Осталось' : 'Сверх'} ${fmt(Math.abs(left))} г</small>
-      ${low === high ? '' : `<small class="macro-range">Оценка остатка ${low}…${high} г</small>`}
+      ${low === high ? '' : `<small class="macro-range">Диапазон ${low}…${high} г</small>`}
     </div>`;
   }).join('');
   const low = fmt(goals.k - consumed.k.high);
@@ -328,12 +333,11 @@ function renderBudget(consumed, goals, hasEntries) {
   const range = low === high ? low : `${low}…${high}`;
   $('budget').innerHTML = `
     <article class="energy-card" data-band="${band}">
-      <div class="energy-heading"><span>${icon('flame')} Калории</span><span>${progress} дневной цели</span></div>
-      <p class="energy-label">${remaining >= 0 ? 'Осталось' : 'Сверх цели'}</p>
+      <div class="energy-heading"><span>${remaining >= 0 ? 'Осталось на день' : 'Сверх дневной цели'}</span><span>${progress} цели</span></div>
       <p class="energy-number">${fmt(Math.abs(remaining))} <small>ккал</small></p>
-      <div class="energy-scale" aria-hidden="true"><i style="width:${consumedPercent}%"></i></div>
+      <div class="energy-scale" aria-hidden="true"><i style="width:${consumedPercent}%"></i><span></span><span></span></div>
       <div class="energy-caption"><span>Съедено ${hasEntries ? '≈ ' : ''}<b>${fmt(consumed.k.mid)}</b></span><span>Цель <b>${fmt(goals.k)} ккал</b></span></div>
-      ${hasEntries ? `<p class="energy-range">Оценка остатка: ${range} ккал</p>` : ''}
+      ${low !== high ? `<p class="energy-range">Диапазон остатка ${range} ккал</p>` : ''}
     </article>
     <section class="macro-panel" aria-label="Белки, жиры и углеводы">${macros}</section>`;
 }
@@ -342,12 +346,39 @@ function renderDay(){
   $('pageDate').textContent=new Date($('date').value+'T12:00:00').toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
   const entries=state.entries.filter(e=>e.date===$('date').value),t=totals(entries);
   renderBudget(t,state.goals,entries.length>0);
-  $('entryCount').textContent=entries.length+' '+({one:'запись',few:'записи',many:'записей',other:'записи'}[new Intl.PluralRules('ru').select(entries.length)]);
-  $('diaryTotal').innerHTML='<span>За выбранный день</span><strong>≈ '+fmt(t.k.mid)+' <small>ккал</small></strong><p>'+fmt(t.k.low)+'–'+fmt(t.k.high)+' ккал · Б '+fmt(t.p.mid)+' / Ж '+fmt(t.f.mid)+' / У '+fmt(t.c.mid)+'</p>';
-  const groups=[...new Set(entries.map(e=>e.meal||'Приём пищи'))];
-  $('entries').innerHTML=entries.length?groups.map(meal=>'<div class="diary-group"><h3>'+esc(meal)+'</h3>'+entries.filter(e=>(e.meal||'Приём пищи')===meal).map(e=>'<article class="entry"><div class="entry-name"><strong>'+esc(e.name)+'</strong><small>'+fmt(e.portion)+' г · '+fmt(e.result.k.low)+'–'+fmt(e.result.k.high)+' ккал</small></div><div><strong>≈ '+fmt(e.result.k.mid)+' ккал</strong><small>Б '+fmt(e.result.p.mid)+' / Ж '+fmt(e.result.f.mid)+' / У '+fmt(e.result.c.mid)+'</small></div><div class="entry-actions"><button type="button" data-edit="'+esc(e.id)+'" aria-label="Изменить '+esc(e.name)+'">Изменить</button><button type="button" data-delete="'+esc(e.id)+'" aria-label="Удалить '+esc(e.name)+'">×</button></div></article>').join('')+'</div>').join(''):'<div class="empty-diary"><p>На этот день ещё нет записей.</p><button type="button" class="quiet" data-open-screen="dish">Рассчитать и добавить порцию</button></div>';
+  renderDiary(entries, t);
   mealUI.render();
   syncPickers();
+}
+function calorieRange(band) {
+  const low = fmt(band.low), high = fmt(band.high);
+  return low === high ? '' : `${low}–${high} ккал`;
+}
+function renderDiary(entries, totals) {
+  $('diaryTotal').hidden = entries.length === 0;
+  $('entryCount').hidden = entries.length === 0;
+  if (!entries.length) {
+    $('entries').innerHTML = '<div class="empty-diary"><p>За этот день ещё нет записей.</p><button type="button" class="quiet" data-open-screen="dish">Записать порцию</button></div>';
+    return;
+  }
+  const form = {one:'запись',few:'записи',many:'записей',other:'записи'}[plural.select(entries.length)];
+  $('entryCount').textContent = `${entries.length} ${form}`;
+  const range = calorieRange(totals.k);
+  $('diaryTotal').innerHTML = `<span>Съедено за день</span><strong>≈ ${fmt(totals.k.mid)} <small>ккал</small></strong>
+    ${range ? `<p>Диапазон ${range}</p>` : ''}<p>Б ${fmt(totals.p.mid)} г · Ж ${fmt(totals.f.mid)} г · У ${fmt(totals.c.mid)} г</p>`;
+  const byMeal = new Map();
+  for (const entry of entries) {
+    const meal = entry.meal || 'Приём пищи';
+    if (!byMeal.has(meal)) byMeal.set(meal, []);
+    byMeal.get(meal).push(entry);
+  }
+  $('entries').innerHTML = mealUI.names().filter(meal => byMeal.has(meal)).map(meal => `
+    <section class="diary-group"><h3>${esc(meal)}</h3>${byMeal.get(meal).map(entry => `
+      <article class="entry">
+        <div class="entry-name"><strong>${esc(entry.name)}</strong><small>${formatGrams(entry.portion)} г${calorieRange(entry.result.k) ? ` · ${calorieRange(entry.result.k)}` : ''}</small></div>
+        <div><strong>≈ ${fmt(entry.result.k.mid)} ккал</strong><small>Б ${fmt(entry.result.p.mid)} / Ж ${fmt(entry.result.f.mid)} / У ${fmt(entry.result.c.mid)} г</small></div>
+        <div class="entry-actions"><button type="button" data-edit="${esc(entry.id)}" aria-label="Изменить ${esc(entry.name)}">Изменить</button><button type="button" data-delete="${esc(entry.id)}" aria-label="Удалить ${esc(entry.name)}">${icon('close')}</button></div>
+      </article>`).join('')}</section>`).join('');
 }
 let pendingDeletion=null,deleteTimer=null,editingId=null;
 function openEntry(id) {
@@ -404,7 +435,26 @@ $('export').onclick=()=>{const json=JSON.stringify(state,null,2);if(window.Andro
 function confirmImport(data){$('importSummary').textContent='В копии '+data.entries.length+' записей. Цель: '+fmt(data.goals.k)+' ккал в день.';const dialog=$('importDialog');dialog.returnValue='';dialog.showModal();return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='apply'),{once:true}))}
 $('applyImport').onclick=()=>$('importDialog').close('apply');$('cancelImport').onclick=()=>$('importDialog').close('cancel');
 async function importData(text){
-  try{if(typeof text!=='string'||text.length>10000000)throw Error('Слишком большой файл.');const data=JSON.parse(text);if(!valid(data))throw Error('Неподходящий формат резервной копии.');navigation.showScreen('diary');if(!(await confirmImport(data)))return false;state=data;closeRecipe();pendingDeletion=null;$('snackbar').hidden=true;persist();renderDay();restoreNeedsProfile();return true}catch(err){$('status').textContent='Импорт не выполнен: '+err.message;return false}
+  try {
+    if(typeof text!=='string'||text.length>10000000)throw Error('Слишком большой файл.');
+    const data=JSON.parse(text);
+    if(!valid(data))throw Error('Неподходящий формат резервной копии.');
+    if(!(await confirmImport(data)))return false;
+    if(recipeDialog.open)recipeDialog.close();
+    state=data;
+    pendingDeletion=null;
+    clearTimeout(deleteTimer);
+    $('snackbar').hidden=true;
+    persist();
+    renderRecipeList();
+    renderDay();
+    restoreNeedsProfile();
+    navigation.showScreen('diary');
+    return true;
+  } catch(err) {
+    $('status').textContent='Импорт не выполнен: '+err.message;
+    return false;
+  }
 }
 $('import').addEventListener('click',e=>{if(window.AndroidFiles?.importJson){e.preventDefault();window.AndroidFiles.importJson()}});
 $('import').onchange=async e=>{try{const file=e.target.files[0];if(file)await importData(await file.text())}finally{e.target.value=''}};

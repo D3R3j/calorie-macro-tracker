@@ -8,7 +8,7 @@ export function mountNavigation({onShowScreen}={}){
   $('menuClose').onclick=close;menu.addEventListener('close',sync);
   menu.addEventListener('click',e=>{if(e.target!==menu)return;const rect=menu.getBoundingClientRect();if(e.clientX<rect.left||e.clientX>rect.right||e.clientY<rect.top||e.clientY>rect.bottom)close()});
   function showScreen(screen,{target,focus=true}={}){
-    if(!['overview','diary','dish','needs'].includes(screen))return;
+    if(!['overview','diary','dish'].includes(screen))return;
     close();current=screen;
     for(const panel of document.querySelectorAll('[data-screen-panel]'))panel.hidden=panel.dataset.screenPanel!==screen;
     for(const tab of document.querySelectorAll('.tab-item')){if(tab.dataset.screen===screen)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current')}
@@ -19,7 +19,14 @@ export function mountNavigation({onShowScreen}={}){
     if(focus&&destination){destination.setAttribute('tabindex','-1');destination.focus({preventScroll:true})}
     onShowScreen?.(screen);
   }
-  function goTo(id){const target=$(id),panel=target?.closest('[data-screen-panel]');if(panel)showScreen(panel.dataset.screenPanel,{target:id})}
+  function goTo(id){
+    const target=$(id),panel=target?.closest('[data-screen-panel]');
+    if(!panel)return;
+    for(let parent=target.parentElement;parent!==panel;parent=parent.parentElement){
+      if(parent.tagName==='DETAILS')parent.open=true;
+    }
+    showScreen(panel.dataset.screenPanel,{target:id});
+  }
   document.addEventListener('click',e=>{const tab=e.target.closest('[data-open-screen],.tab-item');if(tab)showScreen(tab.dataset.openScreen||tab.dataset.screen)});
   document.querySelector('.brand').onclick=e=>{e.preventDefault();showScreen('overview')};
   let version=document.documentElement.dataset.appVersion;

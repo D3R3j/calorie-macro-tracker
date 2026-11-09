@@ -19,3 +19,14 @@ export function transferCalories(allocated,source,target,amount,spent){
   out.find(m=>m.name===source).weight-=amount;out.find(m=>m.name===target).weight+=amount;
   return out;
 }
+
+export function lunchAdjustment(plan, lunchSpent, dinnerSpent) {
+  const lunch = plan.find(meal => meal.name === 'Обед');
+  const dinner = plan.find(meal => meal.name === 'Ужин');
+  if (!lunch || !dinner) return null;
+  const excess = Math.ceil(lunchSpent - lunch.budget);
+  const available = Math.floor(dinner.budget - dinnerSpent);
+  const amount = Math.min(excess, available);
+  if (amount < 1) return null;
+  return {amount, excess, dinnerBudget: dinner.budget - amount};
+}

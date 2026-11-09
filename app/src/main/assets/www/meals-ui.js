@@ -1,4 +1,4 @@
-import {allocateMeals,transferCalories,validMealPlan} from './meal-plan.js';
+import {allocateMeals,lunchAdjustment,transferCalories,validMealPlan} from './meal-plan.js';
 import {renameMealEntries} from './data.js';
 import {icon} from './icons.js';
 export function mountMeals({getState,persist,refresh,fmt,esc}){
@@ -9,13 +9,15 @@ export function mountMeals({getState,persist,refresh,fmt,esc}){
   const options=(selected='Обед')=>names().map(n=>`<option ${n===selected?'selected':''} value="${esc(n)}">${esc(n)}</option>`).join('');
   const save=(day,plan)=>{const state=getState();state.mealPlans={...(state.mealPlans||{}),[day]:plan};persist();refresh()};
   function render(){
-    const plan=allocated(),unplanned=names().filter(n=>!plan.some(m=>m.name===n)&&spent(n)>0).map(name=>({name,budget:0}));
+    const plan=allocated();
+    const logged=new Set(getState().entries.filter(entry=>entry.date===date()).map(entry=>entry.meal||'Приём пищи'));
+    const unplanned=[...logged].filter(name=>!plan.some(meal=>meal.name===name)).map(name=>({name,budget:0}));
     $('mealCards').innerHTML = [...plan, ...unplanned].map((meal, index) => {
       const eaten = spent(meal.name);
       const left = meal.budget - eaten;
       const canTransfer = Math.floor(left) >= 1;
       return `<article class="meal-card">
-        <div class="meal-name"><strong>${esc(meal.name)}</strong><small>${index < plan.length ? 'Съедено ≈ ' + fmt(eaten) : 'Вне плана'}</small></div>
+        <div class="meal-name"><strong>${esc(meal.name)}</strong><small>${index < plan.length ? (logged.has(meal.name) ? 'Съедено ≈ ' + fmt(eaten) : 'Нет записей') : 'Съедено ≈ ' + fmt(eaten) + ' · вне плана'}</small></div>
         <span class="meal-target" aria-label="Цель ${fmt(meal.budget)} ккал">${fmt(meal.budget)}</span>
         <span class="meal-left${left < 0 ? ' over' : ''}" aria-label="${left < 0 ? 'Сверх цели' : 'Осталось'} ${fmt(Math.abs(left))} ккал">${left < 0 ? '−' : ''}${fmt(Math.abs(left))}</span>
         ${index < plan.length ? `<button type="button" class="icon-button transfer-button" data-transfer="${index}" title="Перенести остаток" aria-label="Перенести остаток: ${esc(meal.name)}" ${canTransfer ? '' : 'disabled'}>${icon('transfer')}</button>` : '<span></span>'}
@@ -39,5 +41,20 @@ export function mountMeals({getState,persist,refresh,fmt,esc}){
   $('mealCards').onclick=e=>{const button=e.target.closest('[data-transfer]');if(!button)return;const plan=allocated();sourceName=plan[+button.dataset.transfer].name;transferDay=date();const left=Math.floor(plan.find(m=>m.name===sourceName).budget-spent(sourceName));if(left<1)return;$('transferDescription').textContent=`Из приёма «${sourceName}» доступно ${fmt(left)} ккал по центральной оценке съеденного.`;$('transferAmount').value=left;$('transferAmount').max=left;const sourceIndex=plan.findIndex(m=>m.name===sourceName);const defaultTarget=plan[sourceIndex+1]?.name||plan.find(m=>m.name!==sourceName)?.name||'Полдник';$('transferTarget').innerHTML=names().filter(n=>n!==sourceName).map(n=>`<option value="${esc(n)}" ${n===defaultTarget?'selected':''}>${esc(n)}</option>`).join('');$('transferError').textContent='';$('transferDialog').showModal()};
   $('cancelTransfer').onclick=()=>$('transferDialog').close();
   $('transferForm').onsubmit=e=>{e.preventDefault();try{const plan=transferCalories(allocated(transferDay),sourceName,$('transferTarget').value,+$('transferAmount').value,spent(sourceName,transferDay));save(transferDay,plan);$('transferDialog').close()}catch(err){$('transferError').textContent=err.message}};
-  return {render,options};
+  function offerLunchAdjustment(day) {
+    const adjustment = () => lunchAdjustment(allocated(day), spent('Обед',day), spent('Ужин',day));
+    const proposal = adjustment();
+    if (!proposal) return;
+    const dialog = $('lunchAdjustment');
+    $('lunchAdjustmentText').textContent = `Обед выше плана примерно на ${fmt(proposal.excess)} ккал. ` +
+      `Можно перенести ${fmt(proposal.amount)} ккал из цели ужина в цель обеда. Цель ужина станет ${fmt(proposal.dinnerBudget)} ккал.`;
+    $('lunchAdjustmentCancel').onclick = () => dialog.close();
+    $('lunchAdjustmentApply').onclick = () => {
+      const current = adjustment();
+      if (current) save(day, transferCalories(allocated(day), 'Ужин', 'Обед', current.amount, spent('Ужин',day)));
+      dialog.close();
+    };
+    dialog.showModal();
+  }
+  return {render,options,names,offerLunchAdjustment};
 }
